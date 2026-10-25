@@ -1,4 +1,4 @@
-name: Daily Nifty Alert:
+name: Daily Nifty Alert
 on:
   push:
   schedule:
