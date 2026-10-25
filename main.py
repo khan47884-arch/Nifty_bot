@@ -38,3 +38,4 @@ else:
     crude_level = "Tgt: 10000 | SL: 9400"
 
 msg = f"DAILY MARKET ALERT\n\nNIFTY 50: {nifty_close} ({diff})\nSignal: {nifty_signal}\nSupport: {nifty_sup} | Resistance: {nifty_res}\n\nCRUDE OIL (MCX EST): {mcx_est}\nBrent: ${brent}\nSignal: {crude_signal}\nLevel: {crude_level}"
+send(msg)
