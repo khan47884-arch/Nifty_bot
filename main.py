@@ -7,37 +7,25 @@ CHAT_ID = os.getenv("CHAT_ID")
 
 def send(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": CHAT_ID, "text": text})
+    requests.post(url, data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
 try:
-    nifty = yf.Ticker("^NSEI").history(period="5d")
-    nifty_close = round(nifty['Close'].iloc[-1])
-    nifty_prev = round(nifty['Close'].iloc[-2])
-    nifty_change = nifty_close - nifty_prev
+    daily = yf.Ticker("^NSEI").history(period="5d", interval="1d")
+    hist = yf.Ticker("^NSEI").history(period="5d", interval="15m")
 
-    brent = round(yf.Ticker("BZ=F").history(period="5d")['Close'].iloc[-1], 2)
-    mcx_est = int(brent * 83)
+    prev_high = daily['High'].iloc[-2]
+    prev_low = daily['Low'].iloc[-2]
+    live = hist['Close'].iloc[-1]
+    last2 = hist['Close'].iloc[-2:].values
 
-    gap = "Gap Up" if nifty_change > 0 else "Gap Down"
-    support = nifty_close - 225
-    resistance = nifty_close + 225
-    crude_signal = "HIGH - Sell on Rise" if mcx_est > 9500 else "LOW - Buy on Dip"
+    if last2[0] > prev_high and last2[1] > prev_high:
+        send(f"🚀 *CONFIRM BUY SIGNAL*\n\nKal ka HIGH: {prev_high:.2f}\nLive Price: {live:.2f}\n✅ 2 Candle Confirm Hai - Fake Nahi")
 
-    msg = f"""DAILY MARKET ALERT
+    elif last2[0] < prev_low and last2[1] < prev_low:
+        send(f"🔻 *CONFIRM SELL SIGNAL*\n\nKal ka LOW: {prev_low:.2f}\nLive Price: {live:.2f}\n✅ 2 Candle Confirm Hai - Fake Nahi")
 
-NIFTY 50: {nifty_close} ({nifty_change})
-Signal: {gap} ({nifty_change})
-Support: {support} | Resistance: {resistance}
-
-CRUDE OIL (MCX EST): {mcx_est}
-Brent: ${brent}
-Signal: {crude_signal}
-Level: Res: {mcx_est+50} / 10000"""
-
-    send(msg)
-    print(msg)
+    else:
+        print(f"No Break - Live {live:.2f}")
 
 except Exception as e:
-    print(f"Error {e}")
-    # Fallback agar net fail ho
-    send(f"Nifty Bot Error: {e}")
+    print(e)
