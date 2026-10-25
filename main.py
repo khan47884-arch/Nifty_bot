@@ -7,35 +7,37 @@ CHAT_ID = os.getenv("CHAT_ID")
 
 def send(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
+    requests.post(url, data={"chat_id": CHAT_ID, "text": text})
 
 try:
-    nifty = yf.Ticker("^NSEI").history(period="2d")
+    nifty = yf.Ticker("^NSEI").history(period="5d")
     nifty_close = round(nifty['Close'].iloc[-1])
     nifty_prev = round(nifty['Close'].iloc[-2])
-    brent = round(yf.Ticker("BZ=F").history(period="1d")['Close'].iloc[-1], 2)
-    mcx_est = round(brent * 83.5 * 7.43)
-except:
-    nifty_close = 22500
-    nifty_prev = 22650
-    brent = 117.38
-    mcx_est = 9783
+    nifty_change = nifty_close - nifty_prev
 
-diff = nifty_close - nifty_prev
-if diff > 0:
-    nifty_signal = f"Gap Up (+{round(diff)})"
-else:
-    nifty_signal = f"Gap Down ({round(diff)})"
+    brent = round(yf.Ticker("BZ=F").history(period="5d")['Close'].iloc[-1], 2)
+    mcx_est = int(brent * 83)
 
-nifty_sup = round(nifty_close * 0.99)
-nifty_res = round(nifty_close * 1.01)
+    gap = "Gap Up" if nifty_change > 0 else "Gap Down"
+    support = nifty_close - 225
+    resistance = nifty_close + 225
+    crude_signal = "HIGH - Sell on Rise" if mcx_est > 9500 else "LOW - Buy on Dip"
 
-if brent > 115:
-    crude_signal = "HIGH - Sell on Rise"
-    crude_level = "Res: 9827 / 10000"
-else:
-    crude_signal = "Buy on Dip 9550"
-    crude_level = "Tgt: 10000 | SL: 9400"
+    msg = f"""DAILY MARKET ALERT
 
-msg = f"DAILY MARKET ALERT\n\nNIFTY 50: {nifty_close} ({diff})\nSignal: {nifty_signal}\nSupport: {nifty_sup} | Resistance: {nifty_res}\n\nCRUDE OIL (MCX EST): {mcx_est}\nBrent: ${brent}\nSignal: {crude_signal}\nLevel: {crude_level}"
-send(msg)
+NIFTY 50: {nifty_close} ({nifty_change})
+Signal: {gap} ({nifty_change})
+Support: {support} | Resistance: {resistance}
+
+CRUDE OIL (MCX EST): {mcx_est}
+Brent: ${brent}
+Signal: {crude_signal}
+Level: Res: {mcx_est+50} / 10000"""
+
+    send(msg)
+    print(msg)
+
+except Exception as e:
+    print(f"Error {e}")
+    # Fallback agar net fail ho
+    send(f"Nifty Bot Error: {e}")
