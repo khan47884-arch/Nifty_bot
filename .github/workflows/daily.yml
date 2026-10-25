@@ -1,6 +1,7 @@
 name: Daily Nifty Alert
 on:
-  schedule:
+push:
+schedule:
     - cron: '15 3 * * 1-5'
   workflow_dispatch:
 jobs:
