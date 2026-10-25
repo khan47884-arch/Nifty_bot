@@ -1,58 +1,58 @@
-import requests, time, yfinance as yf
+import requests, os, yfinance as yf
 from datetime import datetime
-import os
-from flask import Flask
-import threading
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8905559008:AAGw-oHZaIiTZ-eD3Qpei4tKCsKMUTIS--8")
-CHAT_ID = os.environ.get("CHAT_ID", "2096276176")
-
-app = Flask(__name__)
-@app.route('/')
-def home():
-    return "Nifty Bot LIVE Hai!"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
 def send(text):
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}, timeout=10)
-    except: pass
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    requests.post(url, data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
-def nifty_bot():
-    send("🚀 Nifty Bot Cloud par 24x7 LIVE!")
-    high = low = None
-    done = False
-    last_date = None
-    while True:
-        try:
-            now = datetime.now()
-            if last_date != now.date():
-                high = low = None
-                done = False
-                last_date = now.date()
-            if now.weekday() >= 5:
-                time.sleep(3600)
-                continue
-            df = yf.download("^NSEI", period="1d", interval="1m", progress=False)
-            if df.empty:
-                time.sleep(60)
-                continue
-            price = float(df['Close'].iloc[-1])
-            if now.hour == 9 and 15 <= now.minute <= 30:
-                if high is None: high = low = price
-                high = max(high, price)
-                low = min(low, price)
-                if now.hour == 9 and now.minute == 30:
-                    send(f"📊 Opening Range High: {high:.2f} Low: {low:.2f}")
-            if high and now.hour == 9 and now.minute > 30 and not done:
-                if price > high + 5:
-                    send(f"🔥 BREAKOUT UP {price:.2f} > {high:.2f} BUY")
-                    done = True
-                elif price < low - 5:
-                    send(f"🔻 BREAKDOWN {price:.2f} < {low:.2f} SELL")
-                    done = True
-            time.sleep(60)
-        except: time.sleep(60)
+FETCH LIVE
+try:
+    nifty = yf.Ticker("^NSEI").history(period="5d")
+    nifty_close = round(nifty['Close'].iloc[-1], 2)
+    nifty_prev = round(nifty['Close'].iloc[-2], 2)
+    brent = round(yf.Ticker("BZ=F").history(period="1d")['Close'].iloc[-1], 2)
+    mcx_est = round(brent * 83.5 * 7.33 / 159)
+except:
+    nifty_close = 22500
+    nifty_prev = 22650
+    brent = 117.38
+    mcx_est = 9783
 
-threading.Thread(target=nifty_bot, daemon=True).start()
-app.run(host='0.0.0.0', port=10000)
+NIFTY SIGNAL
+diff = nifty_close - nifty_prev
+if diff > 0:
+    nifty_signal = f"🟢 Gap Up (+{round(diff,1)}) - Sell on Rise"
+else:
+    nifty_signal = f"🔴 Gap Down ({round(diff,1)}) - Buy on Dip"
+
+nifty_sup = round(nifty_close * 0.99)
+nifty_res = round(nifty_close * 1.01)
+
+CRUDE SIGNAL
+if brent > 115:
+    crude_signal = "🔴 HIGH - Sell near 9800-9850"
+    crude_level = "Res: 9827 / 10000 | Sup: 9550"
+else:
+    crude_signal = "🟢 Buy on Dip 9550-9600"
+    crude_level = "Target: 10000 | SL: 9496"
+
+now = datetime.now().strftime('%d %b %Y, %a %I:%M %p')
+
+msg = f"""📊 *NIFTY + CRUDE LIVE - {now}*
+
+*NIFTY 50:*
+Price: {nifty_close} ({'+' if diff>0 else ''}{round(diff,1)})
+Signal: {nifty_signal}
+Support: {nifty_sup} | Resistance: {nifty_res}
+
+*CRUDE OIL:*
+Brent: ${brent} | MCX Est: Rs {mcx_est}
+Signal: {crude_signal}
+Level: {crude_level}
+
+*Final Plan:*
+Nifty: {nifty_signal}
+Crude: {crude_signal}
