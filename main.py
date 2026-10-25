@@ -8,7 +8,7 @@ def send(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
 
-FETCH LIVE
+#FETCH LIVE
 try:
     nifty = yf.Ticker("^NSEI").history(period="5d")
     nifty_close = round(nifty['Close'].iloc[-1], 2)
@@ -20,7 +20,7 @@ except:
     nifty_prev = 22650
     brent = 117.38
     mcx_est = 9783
-
+#
 NIFTY SIGNAL
 diff = nifty_close - nifty_prev
 if diff > 0:
@@ -33,7 +33,7 @@ nifty_res = round(nifty_close * 1.01)
 
 CRUDE SIGNAL
 if brent > 115:
-    crude_signal = "🔴 HIGH - Sell near 9800-9850"
+#    crude_signal = "🔴 HIGH - Sell near 9800-9850"
     crude_level = "Res: 9827 / 10000 | Sup: 9550"
 else:
     crude_signal = "🟢 Buy on Dip 9550-9600"
