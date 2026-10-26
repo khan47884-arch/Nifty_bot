@@ -18,10 +18,6 @@ def check_stock(name, data_5m, data_daily):
     if data_5m.empty or data_daily.empty:
         return None
     last_candle = data_5m.iloc[-1]
-    last_20_vol_avg = data_5m['Volume'].iloc[-21:-1].mean()
-    curr_vol = float(last_candle['Volume'])
-    if curr_vol < (last_20_vol_avg * 1.5):
-        return None
     last_2_days = data_daily.iloc[-3:-1]
     support = float(last_2_days['Low'].min())
     resistance = float(last_2_days['High'].max())
@@ -30,13 +26,13 @@ def check_stock(name, data_5m, data_daily):
     is_bearish = float(last_candle['Close']) < float(last_candle['Open'])
     strong = is_strong_candle(last_candle)
     if curr_close > support and (float(last_candle['Low']) <= support * 1.003) and is_bullish and strong:
-        return f"✅ *{name} SUPPORT BOUNCE + REAL VOLUME* ✅\nSupport: {support:.2f}\nCurrent: {curr_close:.2f}\nVolume: {curr_vol:.0f} (1.5x)"
+        return f"✅ *{name} SUPPORT BOUNCE* ✅\nSupport: {support:.2f}\nCurrent: {curr_close:.2f}"
     if curr_close < resistance and (float(last_candle['High']) >= resistance * 0.997) and is_bearish and strong:
-        return f"🔴 *{name} RESISTANCE REJECT + REAL VOLUME* 🔴\nResistance: {resistance:.2f}\nCurrent: {curr_close:.2f}\nVolume: {curr_vol:.0f} (1.5x)"
+        return f"🔴 *{name} RESISTANCE REJECT* 🔴\nResistance: {resistance:.2f}\nCurrent: {curr_close:.2f}"
     if curr_close > resistance and is_bullish and strong:
-        return f"🚀 *{name} BREAKOUT + VOLUME* 🚀\n{resistance:.2f} -> {curr_close:.2f}"
+        return f"🚀 *{name} BREAKOUT* 🚀\n{resistance:.2f} -> {curr_close:.2f}"
     if curr_close < support and is_bearish and strong:
-        return f"💥 *{name} BREAKDOWN + VOLUME* 💥\n{support:.2f} -> {curr_close:.2f}"
+        return f"💥 *{name} BREAKDOWN* 💥\n{support:.2f} -> {curr_close:.2f}"
     return None
 
 nifty_5m = yf.download("^NSEI", period="5d", interval="5m", progress=False)
