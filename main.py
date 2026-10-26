@@ -11,40 +11,39 @@ def send_telegram(msg):
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
-        requests.post(url, data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
-    except Exception as e:
-        print(e)
+        requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+    except:
+        pass
 
 def check_stock(name, df_5m, df_daily):
     if df_5m.empty or df_daily.empty:
         return None
     try:
-        curr_close = float(df_5m['Close'].iloc[-1])
-        resistance = float(df_daily['High'].tail(20).max())
-        support = float(df_daily['Low'].tail(20).min())
-        is_bullish = curr_close > float(df_5m['Close'].tail(5).mean())
-        is_bearish = curr_close < float(df_5m['Close'].tail(5).mean())
-        if curr_close > resistance and is_bullish:
-            return f"🚀 *{name} BREAKOUT* 🚀\nPrice: {curr_close:.2f} > Resistance: {resistance:.2f}"
-        if curr_close < support and is_bearish:
-            return f"💥 *{name} BREAKDOWN* 💥\nPrice: {curr_close:.2f} < Support: {support:.2f}"
+        curr = float(df_5m['Close'].iloc[-1])
+        res = float(df_daily['High'].tail(20).max())
+        sup = float(df_daily['Low'].tail(20).min())
+        if curr > res:
+            return f"BREAKOUT {name} {curr:.2f} > {res:.2f}"
+        if curr < sup:
+            return f"BREAKDOWN {name} {curr:.2f} < {sup:.2f}"
         return None
-    except Exception as e:
-        print(f"{name} error {e}")
+    except:
         return None
 
-#--- MAIN ---
 nifty_5m = yf.download("^NSEI", period="5d", interval="15m", progress=False)
 nifty_daily = yf.download("^NSEI", period="3mo", interval="1d", progress=False)
 sensex_5m = yf.download("^BSESN", period="5d", interval="15m", progress=False)
 sensex_daily = yf.download("^BSESN", period="3mo", interval="1d", progress=False)
 
 signals = []
-nifty_signal = check_stock("NIFTY", nifty_5m, nifty_daily)
-if nifty_signal:
-    signals.append(nifty_signal)
-sensex_signal = check_stock("SENSEX", sensex_5m, sensex_daily)
-if sensex_signal:
-    signals.append(sensex_signal)
+s1 = check_stock("NIFTY", nifty_5m, nifty_daily)
+if s1: signals.append(s1)
+s2 = check_stock("SENSEX", sensex_5m, sensex_daily)
+if s2: signals.append(s2)
 
-if signals:
+if len(signals) > 0:
+    msg = "\n".join(signals)
+    print(msg)
+    send_telegram(msg)
+else:
+    print("No breakout today")
