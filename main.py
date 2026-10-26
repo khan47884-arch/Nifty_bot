@@ -2,44 +2,63 @@ import yfinance as yf
 import os
 import requests
 
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 def send_telegram(msg):
+    if not BOT_TOKEN or not CHAT_ID:
+        print("Telegram secrets missing")
+        return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+    payload = {"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}
+    try:
+        requests.post(url, json=payload, timeout=10)
+        print("Message sent")
+    except Exception as e:
+        print(f"Error: {e}")
 
-def is_strong_candle(c):
-    body = abs(float(c['Close']) - float(c['Open']))
-    rng = float(c['High']) - float(c['Low'])
-    return (body / rng) > 0.6 if rng != 0 else False
+def is_strong_candle(last_candle):
+    try:
+        o = float(last_candle['Open'])
+        c = float(last_candle['Close'])
+        h = float(last_candle['High'])
+        l = float(last_candle['Low'])
+        body = abs(c - o)
+        rng = h - l
+        if rng == 0:
+            return False
+        return body > (rng * 0.6)
+    except:
+        return False
 
-def check_stock(name, data_5m, data_daily):
-    if data_5m.empty or data_daily.empty:
+def check_stock(name, df_5m, df_daily):
+    try:
+        if df_5m.empty or df_daily.empty:
+            return None
+        last_2_days = df_daily.tail(2)
+        support = float(last_2_days['Low'].min())
+        resistance = float(last_2_days['High'].max())
+        last_candle = df_5m.tail(1).iloc[0]
+        
+        curr_close = float(last_candle['Close'])
+        is_bullish = float(last_candle['Close']) > float(last_candle['Open'])
+        is_bearish = float(last_candle['Close']) < float(last_candle['Open'])
+        strong = is_strong_candle(last_candle)
+
+        if curr_close > support and (float(last_candle['Low']) <= support * 1.002):
+            return f"✅ *{name} SUPPORT BOUNCE* ✅\nSupport: {support} | Close: {curr_close}"
+        if curr_close < resistance and (float(last_candle['High']) >= resistance * 0.998):
+            return f"🔴 *{name} RESISTANCE REJECT* 🔴\nResistance: {resistance} | Close: {curr_close}"
+        if curr_close > resistance and is_bullish and strong:
+            return f"🚀 *{name} BREAKOUT* 🚀\nResistance broken: {resistance}"
+        if curr_close < support and is_bearish and strong:
+            return f"💥 *{name} BREAKDOWN* 💥\nSupport broken: {support}"
         return None
-    last_candle = data_5m.iloc[-1]
-    last_2_days = data_daily.iloc[-3:-1]
-    support = float(last_2_days['Low'].min())
-    resistance = float(last_2_days['High'].max())
-    curr_close = float(last_candle['Close'])
-    is_bullish = float(last_candle['Close']) > float(last_candle['Open'])
-    is_bearish = float(last_candle['Close']) < float(last_candle['Open'])
-    
-if signals:
-    send_telegram("\n\n".join(signals))
+    except Exception as e:
+        print(f"Error in {name}: {e}")
+        return None
 
-send_telegram("TEST SUCCESSFUL - Bot Telegram se connected hai boss")
-    strong = is_strong_candle(last_candle)
-    if curr_close > support and (float(last_candle['Low']) <= support * 1.003) and is_bullish and strong:
-        return f"✅ *{name} SUPPORT BOUNCE* ✅\nSupport: {support:.2f}\nCurrent: {curr_close:.2f}"
-    if curr_close < resistance and (float(last_candle['High']) >= resistance * 0.997) and is_bearish and strong:
-        return f"🔴 *{name} RESISTANCE REJECT* 🔴\nResistance: {resistance:.2f}\nCurrent: {curr_close:.2f}"
-    if curr_close > resistance and is_bullish and strong:
-        return f"🚀 *{name} BREAKOUT* 🚀\n{resistance:.2f} -> {curr_close:.2f}"
-    if curr_close < support and is_bearish and strong:
-        return f"💥 *{name} BREAKDOWN* 💥\n{support:.2f} -> {curr_close:.2f}"
-    return None
-
+Download data
 nifty_5m = yf.download("^NSEI", period="5d", interval="5m", progress=False)
 nifty_daily = yf.download("^NSEI", period="10d", interval="1d", progress=False)
 sensex_5m = yf.download("^BSESN", period="5d", interval="5m", progress=False)
@@ -52,3 +71,8 @@ for s in [check_stock("NIFTY", nifty_5m, nifty_daily), check_stock("SENSEX", sen
 
 if signals:
     send_telegram("\n\n".join(signals))
+
+send_telegram("TEST SUCCESSFUL - Bot Telegram se connected hai boss")
+*Iske baad:*
+1. Commit changes
+2. Actions > Run workflow
