@@ -37,9 +37,11 @@ sensex_daily = yf.download("^BSESN", period="3mo", interval="1d", progress=False
 
 signals = []
 s1 = check_stock("NIFTY", nifty_5m, nifty_daily)
-if s1: signals.append(s1)
+if s1:
+    signals.append(s1)
 s2 = check_stock("SENSEX", sensex_5m, sensex_daily)
-if s2: signals.append(s2)
+if s2:
+    signals.append(s2)
 
 if len(signals) > 0:
     msg = "\n".join(signals)
