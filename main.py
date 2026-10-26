@@ -24,6 +24,11 @@ def check_stock(name, data_5m, data_daily):
     curr_close = float(last_candle['Close'])
     is_bullish = float(last_candle['Close']) > float(last_candle['Open'])
     is_bearish = float(last_candle['Close']) < float(last_candle['Open'])
+    
+if signals:
+    send_telegram("\n\n".join(signals))
+
+send_telegram("TEST SUCCESSFUL - Bot Telegram se connected hai boss")
     strong = is_strong_candle(last_candle)
     if curr_close > support and (float(last_candle['Low']) <= support * 1.003) and is_bullish and strong:
         return f"✅ *{name} SUPPORT BOUNCE* ✅\nSupport: {support:.2f}\nCurrent: {curr_close:.2f}"
