@@ -33,7 +33,7 @@ def check_stock(name, df_5m, df_daily):
         print(f"{name} error {e}")
         return None
 
---- MAIN ---
+#--- MAIN ---
 nifty_5m = yf.download("^NSEI", period="5d", interval="15m", progress=False)
 nifty_daily = yf.download("^NSEI", period="3mo", interval="1d", progress=False)
 sensex_5m = yf.download("^BSESN", period="5d", interval="15m", progress=False)
@@ -48,8 +48,3 @@ if sensex_signal:
     signals.append(sensex_signal)
 
 if signals:
-    final_msg = "\n\n".join(signals)
-    print(final_msg)
-    send_telegram(final_msg)
-else:
-    print("No breakout today")
