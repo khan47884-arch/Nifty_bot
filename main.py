@@ -58,7 +58,7 @@ def check_stock(name, df_5m, df_daily):
         print(f"Error in {name}: {e}")
         return None
 
-Download data
+# Download data
 nifty_5m = yf.download("^NSEI", period="5d", interval="5m", progress=False)
 nifty_daily = yf.download("^NSEI", period="10d", interval="1d", progress=False)
 sensex_5m = yf.download("^BSESN", period="5d", interval="5m", progress=False)
@@ -73,6 +73,3 @@ if signals:
     send_telegram("\n\n".join(signals))
 
 send_telegram("TEST SUCCESSFUL - Bot Telegram se connected hai boss")
-*Iske baad:*
-1. Commit changes
-2. Actions > Run workflow
