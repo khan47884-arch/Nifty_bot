@@ -1,4 +1,3 @@
-Ye lo *FINAL 507 ELITE BOND* wala - same logic bas 507 stocks:
 import yfinance as yf
 import os, requests
 from datetime import datetime
