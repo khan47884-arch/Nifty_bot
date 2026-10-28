@@ -1,0 +1,23 @@
+name: OPTION BOND NIFTY SENSEX
+
+on:
+  schedule:
+    - cron: '*/5 4-10 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  option-bond:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install deps
+        run: pip install yfinance requests
+      - name: Run Option Bond
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python option_bond.py
