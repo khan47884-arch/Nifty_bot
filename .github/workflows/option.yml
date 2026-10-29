@@ -52,12 +52,22 @@ jobs:
                   elif upper>body*2 and lower<body*0.6: pat="SHOOTING STAR"; bear=True
                   elif upper>body*2.2: pat="BEARISH PIN BAR"; bear=True
                   if pat=="": continue
-                  up_trend = close15>ema20 and close15>ema50
-                  down_trend = close15<ema20 and close15<ema50
+                  up = close15>ema20 and close15>ema50
+                  down = close15<ema20 and close15<ema50
                   import datetime; now=datetime.datetime.now().strftime('%d-%m-%Y %H:%M')
-                  if bull and up_trend and rsi15>52 and rsi5>50:
-                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - BUY\n📈 15M: EMA20 {ema20:.0f} | EMA50 {ema50:.0f} UP\n📊 RSI 15M {rsi15:.0f} | 5M {rsi5:.0f}\n👉 CE BUY - Pakka Bond")
-                  elif bear and down_trend and rsi15<48 and rsi5<50:
-                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - SELL\n📉 15M: EMA20 {ema20:.0f} | EMA50 {ema50:.0f} DOWN\n📊 RSI 15M {rsi15:.0f} | 5M {rsi5:.0f}\n👉 PE BUY - Pakka Bond")
+                  if bull:
+                      sl = min(l, pl)
+                      risk = c - sl
+                      tgt1 = c + risk*1.5
+                      tgt2 = c + risk*2.5
+                  else:
+                      sl = max(h, ph)
+                      risk = sl - c
+                      tgt1 = c - risk*1.5
+                      tgt2 = c - risk*2.5
+                  if bull and up and rsi15>52 and rsi5>50:
+                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - BUY\n📈 15M: EMA20 {ema20:.0f} | EMA50 {ema50:.0f} UP\n📊 RSI 15M {rsi15:.0f} | 5M {rsi5:.0f}\n________________________\n💰 ENTRY: {c:.0f}\n🛑 SL: {sl:.0f} ({risk:.0f} pt)\n🎯 TGT1: {tgt1:.0f} | TGT2: {tgt2:.0f}\n👉 CE BUY - Pakka Bond")
+                  elif bear and down and rsi15<48 and rsi5<50:
+                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - SELL\n📉 15M: EMA20 {ema20:.0f} | EMA50 {ema50:.0f} DOWN\n📊 RSI 15M {rsi15:.0f} | 5M {rsi5:.0f}\n________________________\n💰 ENTRY: {c:.0f}\n🛑 SL: {sl:.0f} ({risk:.0f} pt)\n🎯 TGT1: {tgt1:.0f} | TGT2: {tgt2:.0f}\n👉 PE BUY - Pakka Bond")
               except: continue
           PY
