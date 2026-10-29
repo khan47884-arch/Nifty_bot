@@ -1,4 +1,4 @@
-name: Nifty Alert
+name: Option Bond Strike
 on:
   schedule:
     - cron: '*/5 3-10 * * 1-5'
@@ -8,29 +8,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      - name: Install
-        run: pip install yfinance requests
+      - run: pip install yfinance requests
       - name: Run Bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python - << 'PY'
-          import yfinance as yf, os, requests, math
+          import yfinance as yf, os, requests
           BOT=os.getenv('TELEGRAM_BOT_TOKEN'); CHAT=os.getenv('TELEGRAM_CHAT_ID')
           def send(m):
-              try: requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=10)
+              try: requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=15)
               except: pass
-          def rsi(s, p=14):
+          def rsi(s,p=14):
               d=s.diff(); g=d.where(d>0,0).ewm(alpha=1/p).mean(); l=(-d.where(d<0,0)).ewm(alpha=1/p).mean()
               return 100-(100/(1+(g/l)))
-          def get_strike(price, sym):
+          def get_strike(price,sym):
               step=50 if "NSEI" in sym else 100
               return int(round(price/step)*step)
+          found=False
           for sym,name in [("^NSEI","NIFTY"),("^BSESN","SENSEX")]:
               try:
                   df5=yf.download(sym,period="2d",interval="5m",progress=False,auto_adjust=True)
@@ -38,14 +37,13 @@ jobs:
                   if len(df5)<50 or len(df15)<100: continue
                   o,h,l,c=map(float,df5.iloc[-1][["Open","High","Low","Close"]])
                   po,ph,pl,pc=map(float,df5.iloc[-2][["Open","High","Low","Close"]])
-                  body=abs(c-o)
+                  body=abs(c-o); lower=min(o,c)-l; upper=h-max(o,c)
                   if body==0: body=0.01
-                  lower=min(o,c)-l; upper=h-max(o,c)
                   rsi5=float(rsi(df5["Close"]).iloc[-1])
-                  close15=float(df15.iloc[-1]["Close"])
                   ema20=float(df15["Close"].ewm(span=20).mean().iloc[-1])
                   ema50=float(df15["Close"].ewm(span=50).mean().iloc[-1])
                   rsi15=float(rsi(df15["Close"]).iloc[-1])
+                  close15=float(df15.iloc[-1]["Close"])
                   pat=""; bull=False; bear=False
                   if pc<po and c>o and c>=po and o<=pc: pat="BULLISH ENGULFING"; bull=True
                   elif lower>body*2 and upper<body*0.6: pat="HAMMER"; bull=True
@@ -54,21 +52,15 @@ jobs:
                   elif upper>body*2 and lower<body*0.6: pat="SHOOTING STAR"; bear=True
                   elif upper>body*2.2: pat="BEARISH PIN BAR"; bear=True
                   if pat=="": continue
-                  up = close15>ema20 and close15>ema50
-                  down = close15<ema20 and close15<ema50
-                  import datetime; now=datetime.datetime.now().strftime('%d-%m-%Y %H:%M')
-                  strike = get_strike(c, sym)
-                  if bull:
-                      sl = min(l, pl); risk = c - sl
-                      tgt1 = c + risk*1.5; tgt2 = c + risk*2.5
-                      strike_txt = f"{strike} CE"
-                  else:
-                      sl = max(h, ph); risk = sl - c
-                      tgt1 = c - risk*1.5; tgt2 = c - risk*2.5
-                      strike_txt = f"{strike} PE"
+                  up=close15>ema20 and close15>ema50; down=close15<ema20 and close15<ema50
+                  import datetime; now=datetime.datetime.now().strftime('%d-%m %H:%M')
+                  strike=get_strike(c,sym); sl=min(l,pl) if bull else max(h,ph); risk=abs(c-sl)
+                  tgt1=c+risk*1.5 if bull else c-risk*1.5; tgt2=c+risk*2.5 if bull else c-risk*2.5
+                  stxt=f"{strike} {'CE' if bull else 'PE'}"
                   if bull and up and rsi15>52 and rsi5>50:
-                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - BUY\n📈 15M: EMA20 {ema20:.0f} | EMA50 {ema50:.0f} UP\n📊 RSI 15M {rsi15:.0f} | 5M {rsi5:.0f}\n________________________\n💰 INDEX: {c:.0f}\n🎯 STRIKE: {strike_txt}\n🛑 SL INDEX: {sl:.0f} ({risk:.0f} pt)\n🎯 TGT: {tgt1:.0f} | {tgt2:.0f}\n👉 {strike_txt} BUY - Pakka Bond")
+                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n📊 {pat} - BUY\n📈 15M UP\n💰 INDEX: {c:.0f}\n🎯 STRIKE: {stxt}\n🛑 SL: {sl:.0f}\n🎯 TGT: {tgt1:.0f} | {tgt2:.0f}\n👉 {stxt} BUY - Pakka Bond"); found=True
                   elif bear and down and rsi15<48 and rsi5<50:
-                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - SELL\n📉 15M: EMA20 {ema20:.0f} | EMA50 {ema50:.0f} DOWN\n📊 RSI 15M {rsi15:.0f} | 5M {rsi5:.0f}\n________________________\n💰 INDEX: {c:.0f}\n🎯 STRIKE: {strike_txt}\n🛑 SL INDEX: {sl:.0f} ({risk:.0f} pt)\n🎯 TGT: {tgt1:.0f} | {tgt2:.0f}\n👉 {strike_txt} BUY - Pakka Bond")
+                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n📊 {pat} - SELL\n📉 15M DOWN\n💰 INDEX: {c:.0f}\n🎯 STRIKE: {stxt}\n🛑 SL: {sl:.0f}\n🎯 TGT: {tgt1:.0f} | {tgt2:.0f}\n👉 {stxt} BUY - Pakka Bond"); found=True
               except: continue
+          if not found: send("⚪ Option Bond SCAN - Abhi koi Hammer/Engulfing nahi mila [Market band / Sideways] - Bot OK hai")
           PY
