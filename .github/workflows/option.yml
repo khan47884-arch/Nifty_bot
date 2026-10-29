@@ -1,10 +1,12 @@
-name: OPTION BOND NIFTY SENSEX
+name: Nifty Alert
 
 on:
+  schedule:
+    - cron: '*/5 3-10 * * 1-5'
   workflow_dispatch:
 
 jobs:
-  option-bond:
+  alert:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -12,10 +14,61 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      - name: Install deps
+      - name: Install
         run: pip install yfinance requests
-      - name: Run Option Bond
+      - name: Run Bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python main.py
+        run: |
+          python - << 'PY'
+          import yfinance as yf, os, requests
+          from datetime import datetime
+          BOT=os.getenv('TELEGRAM_BOT_TOKEN')
+          CHAT=os.getenv('TELEGRAM_CHAT_ID')
+          def send(m):
+              try: requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=10)
+              except: pass
+          def rsi(s, p=14):
+              d=s.diff()
+              g=d.where(d>0,0).ewm(alpha=1/p).mean()
+              l=(-d.where(d<0,0)).ewm(alpha=1/p).mean()
+              return 100-(100/(1+(g/l)))
+          for sym,name in [("^NSEI","NIFTY"),("^BSESN","SENSEX")]:
+              try:
+                  df5=yf.download(sym,period="2d",interval="5m",progress=False,auto_adjust=True)
+                  df15=yf.download(sym,period="5d",interval="15m",progress=False,auto_adjust=True)
+                  if len(df5)<50 or len(df15)<50: continue
+                  o,h,l,c=map(float,df5.iloc[-1][["Open","High","Low","Close"]])
+                  po,ph,pl,pc=map(float,df5.iloc[-2][["Open","High","Low","Close"]])
+                  body=abs(c-o)
+                  if body==0: body=0.01
+                  lower=min(o,c)-l
+                  upper=h-max(o,c)
+                  rsi5=float(rsi(df5["Close"]).iloc[-1])
+                  close15=float(df15.iloc[-1]["Close"])
+                  ema20=float(df15["Close"].ewm(span=20).mean().iloc[-1])
+                  rsi15=float(rsi(df15["Close"]).iloc[-1])
+                  pat=""; bull=False; bear=False
+                  if pc<po and c>o and c>=po and o<=pc:
+                      pat="BULLISH ENGULFING"; bull=True
+                  elif lower>body*2 and upper<body*0.6 and body>0:
+                      pat="HAMMER"; bull=True
+                  elif lower>body*2.2:
+                      pat="BULLISH PIN BAR"; bull=True
+                  elif pc>po and c<o and o>=pc and c<=po:
+                      pat="BEARISH ENGULFING"; bear=True
+                  elif upper>body*2 and lower<body*0.6 and body>0:
+                      pat="SHOOTING STAR"; bear=True
+                  elif upper>body*2.2:
+                      pat="BEARISH PIN BAR"; bear=True
+                  if pat=="": continue
+                  up_trend = close15>ema20 or (close15>ema20*0.9985 and rsi15>50)
+                  down_trend = close15<ema20 or (close15<ema20*1.0015 and rsi15<50)
+                  now=datetime.now().strftime('%d-%m-%Y %H:%M')
+                  if bull and up_trend and rsi15>52 and rsi5>50:
+                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - BUY\n📈 15M Trend: UP | RSI {rsi15:.0f} | EMA Touch\n📊 5M RSI: {rsi5:.0f} - TEZ ENTRY\n👉 CE BUY - Pakka Bond")
+                  elif bear and down_trend and rsi15<48 and rsi5<50:
+                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - SELL\n📉 15M Trend: DOWN | RSI {rsi15:.0f} | EMA Touch\n📊 5M RSI: {rsi5:.0f} - TEZ ENTRY\n👉 PE BUY - Pakka Bond")
+              except: continue
+          PY
