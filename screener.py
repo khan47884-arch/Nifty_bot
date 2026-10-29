@@ -1,5 +1,7 @@
+import warnings
+warnings.filterwarnings("ignore")
 import yfinance as yf
-import requests, os, time, datetime
+import requests, os, time
 from concurrent.futures import ThreadPoolExecutor
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -9,7 +11,7 @@ def send_telegram(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
         for i in range(0, len(msg), 3500):
-            requests.post(url, data={"chat_id": CHAT_ID, "text": msg[i:i+3500]}, timeout=15)
+            requests.post(url, data={"chat_id": CHAT_ID, "text": msg[i:i+3500]}, timeout=20)
             time.sleep(1)
     except: pass
 
@@ -19,44 +21,43 @@ def is_bullish_hammer(row):
     o,h,l,c = float(row['Open']),float(row['High']),float(row['Low']),float(row['Close'])
     body = abs(c-o); rng = h-l; lower = min(o,c)-l
     if rng==0: return False
-    return (lower >= body*2) and (c>o) and (body/rng < 0.4)
+    return (lower >= body*1.8) and (c>o) and (body/rng < 0.5)
 
 def is_bullish_engulfing(curr, prev):
     return (float(prev['Close'])<float(prev['Open']) and float(curr['Close'])>float(curr['Open']) and float(curr['Open'])<float(prev['Close']) and float(curr['Close'])>float(prev['Open']))
 
 def scan_single(sym):
     try:
-        df_d = yf.download(sym, period="1y", interval="1d", progress=False, auto_adjust=True)
+        df_d = yf.download(sym, period="1y", interval="1d", progress=False, auto_adjust=True, threads=False)
         if len(df_d) < 210: return None
-        df_m = yf.download(sym, period="5y", interval="1mo", progress=False, auto_adjust=True)
+        df_m = yf.download(sym, period="5y", interval="1mo", progress=False, auto_adjust=True, threads=False)
         if len(df_m) < 24: return None
         df_d['EMA50'] = df_d['Close'].ewm(span=50, adjust=False).mean()
         df_d['EMA200'] = df_d['Close'].ewm(span=200, adjust=False).mean()
         cross_days = 0
         for i in range(1, 21):
             if df_d['EMA50'].iloc[-i-1] < df_d['EMA200'].iloc[-i-1] and df_d['EMA50'].iloc[-i] > df_d['EMA200'].iloc[-i]:
-                cross_days = i
-                break
+                cross_days = i; break
         if cross_days == 0: return None
         curr = df_d.iloc[-1]; prev = df_d.iloc[-2]
         price = float(curr['Close']); ema50 = float(curr['EMA50']); ema200 = float(curr['EMA200'])
         low_10 = float(df_d['Low'].iloc[-10:].min())
-        if abs(price - ema50) / ema50 > 0.04: return None
+        if abs(price - ema50) / ema50 > 0.05: return None
         hammer = is_bullish_hammer(curr)
         engulf = is_bullish_engulfing(curr, prev)
         body = abs(float(curr['Close'])-float(curr['Open']))
         rng = float(curr['High'])-float(curr['Low'])
-        strong = (rng>0 and body/rng>0.6 and float(curr['Close'])>float(curr['Open']))
+        strong = (rng>0 and body/rng>0.55 and float(curr['Close'])>float(curr['Open']))
         if not (hammer or engulf or strong): return None
         low_3y = float(df_m['Low'].tail(36).min())
         ema20_m = float(df_m['Close'].ewm(span=20).mean().iloc[-1])
-        is_near_bottom = price < low_3y * 2.5
-        monthly_support = price > ema20_m * 0.90
-        ret_1y = (df_d['Close'].iloc[-1]/df_d['Close'].iloc[-252]-1)*100 if len(df_d)>252 else 0
+        is_near_bottom = price < low_3y * 3.0
+        monthly_support = price > ema20_m * 0.88
+        ret_1y = float((df_d['Close'].iloc[-1]/df_d['Close'].iloc[-252]-1)*100) if len(df_d)>252 else 0
         sl_base = min(low_10, ema200)
         sl = sl_base * 0.98
         sl_percent = ((price - sl) / price) * 100
-        if sl_percent > 8 or sl_percent < 0.5: return None
+        if sl_percent > 9 or sl_percent < 0.3: return None
         t1 = price * 1.15; t2 = price * 1.35; t4 = price * 2.0
         risk = price - sl
         rr1 = (t1-price)/risk if risk>0 else 0
@@ -70,7 +71,7 @@ def scan_single(sym):
         return None
 
 found = []
-with ThreadPoolExecutor(max_workers=20) as executor:
+with ThreadPoolExecutor(max_workers=10) as executor:
     for res in executor.map(scan_single, STOCKS):
         if res: found.append(res)
 
