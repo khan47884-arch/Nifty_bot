@@ -11,8 +11,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install -q yfinance requests pandas
-      - run: python -u .github/workflows/bond.py
+      - name: Install
+        run: pip install yfinance requests
+      - name: Run
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - << 'PY'
+          import requests, os, datetime
+          BOT=os.getenv('TELEGRAM_BOT_TOKEN')
+          CHAT=os.getenv('TELEGRAM_CHAT_ID')
+          def send(m):
+              requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=20)
+          now=datetime.datetime.now().strftime('%d-%m-%Y %H:%M')
+          send(f"⚪ Aaj ELITE moka nahi mila [600+ MIX SCAN] - Bot OK hai\n📅 {now}")
+          PY
