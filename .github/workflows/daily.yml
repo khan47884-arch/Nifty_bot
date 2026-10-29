@@ -1,8 +1,9 @@
+ *daily.yml*
 name: daily
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 3 * * 1-5'
+    - cron: '0 4 * * 1-5'
 jobs:
   bot:
     runs-on: ubuntu-latest
@@ -11,10 +12,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install libs
-        run: pip install yfinance pandas requests
-      - name: Run bot
+      - run: pip install -q yfinance requests pandas
+      - run: python -u .github/workflows/bond.py
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python main.py
