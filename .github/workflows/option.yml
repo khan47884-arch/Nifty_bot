@@ -1,8 +1,6 @@
 name: OPTION BOND NIFTY SENSEX
 
 on:
-  schedule:
-    - cron: '*/5 4-10 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -20,4 +18,4 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python .github/workflows/bond.py
+        run: python main.py
