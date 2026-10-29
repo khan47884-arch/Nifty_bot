@@ -1,4 +1,3 @@
- *daily.yml*
 name: daily
 on:
   workflow_dispatch:
