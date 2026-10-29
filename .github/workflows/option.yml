@@ -20,15 +20,17 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python - << 'PY'
-          import yfinance as yf, os, requests
-          BOT=os.getenv('TELEGRAM_BOT_TOKEN')
-          CHAT=os.getenv('TELEGRAM_CHAT_ID')
+          import yfinance as yf, os, requests, math
+          BOT=os.getenv('TELEGRAM_BOT_TOKEN'); CHAT=os.getenv('TELEGRAM_CHAT_ID')
           def send(m):
               try: requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=10)
               except: pass
           def rsi(s, p=14):
               d=s.diff(); g=d.where(d>0,0).ewm(alpha=1/p).mean(); l=(-d.where(d<0,0)).ewm(alpha=1/p).mean()
               return 100-(100/(1+(g/l)))
+          def get_strike(price, sym):
+              step=50 if "NSEI" in sym else 100
+              return int(round(price/step)*step)
           for sym,name in [("^NSEI","NIFTY"),("^BSESN","SENSEX")]:
               try:
                   df5=yf.download(sym,period="2d",interval="5m",progress=False,auto_adjust=True)
@@ -55,19 +57,18 @@ jobs:
                   up = close15>ema20 and close15>ema50
                   down = close15<ema20 and close15<ema50
                   import datetime; now=datetime.datetime.now().strftime('%d-%m-%Y %H:%M')
+                  strike = get_strike(c, sym)
                   if bull:
-                      sl = min(l, pl)
-                      risk = c - sl
-                      tgt1 = c + risk*1.5
-                      tgt2 = c + risk*2.5
+                      sl = min(l, pl); risk = c - sl
+                      tgt1 = c + risk*1.5; tgt2 = c + risk*2.5
+                      strike_txt = f"{strike} CE"
                   else:
-                      sl = max(h, ph)
-                      risk = sl - c
-                      tgt1 = c - risk*1.5
-                      tgt2 = c - risk*2.5
+                      sl = max(h, ph); risk = sl - c
+                      tgt1 = c - risk*1.5; tgt2 = c - risk*2.5
+                      strike_txt = f"{strike} PE"
                   if bull and up and rsi15>52 and rsi5>50:
-                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - BUY\n📈 15M: EMA20 {ema20:.0f} | EMA50 {ema50:.0f} UP\n📊 RSI 15M {rsi15:.0f} | 5M {rsi5:.0f}\n________________________\n💰 ENTRY: {c:.0f}\n🛑 SL: {sl:.0f} ({risk:.0f} pt)\n🎯 TGT1: {tgt1:.0f} | TGT2: {tgt2:.0f}\n👉 CE BUY - Pakka Bond")
+                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - BUY\n📈 15M: EMA20 {ema20:.0f} | EMA50 {ema50:.0f} UP\n📊 RSI 15M {rsi15:.0f} | 5M {rsi5:.0f}\n________________________\n💰 INDEX: {c:.0f}\n🎯 STRIKE: {strike_txt}\n🛑 SL INDEX: {sl:.0f} ({risk:.0f} pt)\n🎯 TGT: {tgt1:.0f} | {tgt2:.0f}\n👉 {strike_txt} BUY - Pakka Bond")
                   elif bear and down and rsi15<48 and rsi5<50:
-                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - SELL\n📉 15M: EMA20 {ema20:.0f} | EMA50 {ema50:.0f} DOWN\n📊 RSI 15M {rsi15:.0f} | 5M {rsi5:.0f}\n________________________\n💰 ENTRY: {c:.0f}\n🛑 SL: {sl:.0f} ({risk:.0f} pt)\n🎯 TGT1: {tgt1:.0f} | TGT2: {tgt2:.0f}\n👉 PE BUY - Pakka Bond")
+                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pat} - SELL\n📉 15M: EMA20 {ema20:.0f} | EMA50 {ema50:.0f} DOWN\n📊 RSI 15M {rsi15:.0f} | 5M {rsi5:.0f}\n________________________\n💰 INDEX: {c:.0f}\n🎯 STRIKE: {strike_txt}\n🛑 SL INDEX: {sl:.0f} ({risk:.0f} pt)\n🎯 TGT: {tgt1:.0f} | {tgt2:.0f}\n👉 {strike_txt} BUY - Pakka Bond")
               except: continue
           PY
