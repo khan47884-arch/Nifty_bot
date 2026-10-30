@@ -19,11 +19,10 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python - << 'PY'
-          import yfinance as yf, os, requests
+          import yfinance as yf, os, requests, datetime
           BOT=os.getenv('TELEGRAM_BOT_TOKEN'); CHAT=os.getenv('TELEGRAM_CHAT_ID')
           def send(m):
-              try: requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id":CHAT,"text":m}, timeout=15)
-              except: pass
+              requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id":CHAT,"text":m}, timeout=15)
           def rsi(s,p=14):
               d=s.diff(); g=d.where(d>0,0).ewm(com=p-1).mean(); l=(-d.where(d<0,0)).ewm(com=p-1).mean()
               return 100-(100/(1+g/l.replace(0,0.01)))
@@ -38,24 +37,16 @@ jobs:
                   rsi5_all=rsi(df5["Close"])
                   ema20_5=df5["Close"].ewm(span=20).mean(); ema50_5=df5["Close"].ewm(span=50).mean()
                   pdh=float(dfD.iloc[-2]["High"])
-                  c1=float(df5.iloc[-1]["Close"]); c2=float(df5.iloc[-2]["Close"]); c3=float(df5.iloc[-3]["Close"])
-                  o1=float(df5.iloc[-1]["Open"]); h1=float(df5.iloc[-1]["High"]); l1=float(df5.iloc[-1]["Low"])
+                  c1=float(df5.iloc[-1]["Close"]); c2=float(df5.iloc[-2]["Close"]); c3=float(df5.iloc[-3]["Close"]); o1=float(df5.iloc[-1]["Open"])
                   rsi_now=float(rsi5_all.iloc[-1]); rsi_prev=float(rsi5_all.iloc[-2])
                   ema20=float(ema20_5.iloc[-1]); ema50=float(ema50_5.iloc[-1])
-                  import datetime; now=datetime.datetime.now().strftime('%H:%M')
-                  buy_sustain=c1>pdh and c2>pdh and c3>pdh
-                  buy_rsi=50<=rsi_now<=68 and rsi_now>=rsi_prev
-                  buy_ema=c1>ema20 and ema20>ema50 and c1>o1
-                  if buy_sustain and buy_rsi and buy_ema:
-                      sl=c1-30; tgt=c1+60; strike=get_strike(c1,sym)
-                      send(f"🚀 DH UPAR SUSTAIN BUY - {name}\n⏰ {now}\n🔴 DH {pdh:.0f} ke upar 3 candle\n📈 RSI {rsi_now:.0f}\n💰 {c1:.0f}\n🎯 {strike} CE\n🛑 SL {sl:.0f} (30) 🎯 TGT {tgt:.0f} (60) 1:2")
+                  now=datetime.datetime.now().strftime('%d-%m %H:%M')
+                  if c1>pdh and c2>pdh and c3>pdh and 50<=rsi_now<=68 and rsi_now>=rsi_prev and c1>ema20 and ema20>ema50 and c1>o1:
+                      sl=c1-30; tgt1=c1+60; tgt2=c1+90; strike=get_strike(c1,sym)
+                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n📊 BULLISH PIN BAR - BUY\n📈 DH {pdh:.0f} UPAR 3 CANDLE SUSTAIN\n💹 RSI: {rsi_now:.0f}\n💰 INDEX: {c1:.0f}\n🎯 STRIKE: {strike} CE\n🛑 SL: {sl:.0f} (30 pts)\n🎯 TGT: {tgt1:.0f} (60 pts 1:2) | {tgt2:.0f} (90)\n👉 {strike} CE BUY - Pakka Bond")
                       continue
-                  sell_sustain=c1<pdh and c2<pdh
-                  sell_single=c1<o1
-                  sell_rsi=rsi_now<50 and rsi_now<=rsi_prev and rsi_now>=30
-                  sell_ema=c1<ema20 and ema20<ema50
-                  if sell_sustain and sell_single and sell_rsi and sell_ema:
-                      sl=c1+30; tgt=c1-60; strike=get_strike(c1,sym)
-                      send(f"🔻 DH NICHE SUSTAIN SELL - {name}\n⏰ {now}\n🔴 DH {pdh:.0f} se neeche + RED Candle\n📉 RSI {rsi_now:.0f}\n💰 {c1:.0f}\n🎯 {strike} PE\n🛑 SL {sl:.0f} (30) 🎯 TGT {tgt:.0f} (60) 1:2")
+                  if c1<pdh and c2<pdh and c1<o1 and rsi_now<50 and rsi_now>=30 and rsi_now<=rsi_prev and c1<ema20 and ema20<ema50:
+                      sl=c1+30; tgt1=c1-60; tgt2=c1-90; strike=get_strike(c1,sym)
+                      send(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n📊 BEARISH ENGULFING - SELL\n📉 DH {pdh:.0f} NICHE SUSTAIN + RED CANDLE\n💹 RSI: {rsi_now:.0f}\n💰 INDEX: {c1:.0f}\n🎯 STRIKE: {strike} PE\n🛑 SL: {sl:.0f} (30 pts)\n🎯 TGT: {tgt1:.0f} (60 pts 1:2) | {tgt2:.0f} (90)\n👉 {strike} PE BUY - Pakka Bond")
               except: continue
           PY
