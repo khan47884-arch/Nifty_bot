@@ -1,132 +1,44 @@
-import yfinance as yf, requests, yaml
+import yfinance as yf, pytz, requests, os
 from datetime import datetime
-import pytz
-
-with open('option.yml','r') as f:
-    cfg = yaml.safe_load(f)
-
-def send_tg(pattern, rsi5, strike, sl, t1, t2, t3, tag, volx, vwap_ok):
-    token = cfg['telegram']['bot_token']
-    chat_id = cfg['telegram']['chat_id']
-    now = datetime.now().strftime("%d-%m %H:%M")
-    vwap_txt = "VWAP UP ✅" if vwap_ok else "VWAP DOWN ❌"
-    
-    if "KOHINOOR" in tag:
-        stamp = "👑👑👑 KOHINOOR - LIQUIDITY BOMB"
-        note = "🔥 LIQ SWEEP + PATTERN = 200 PT BOMB\n👉 HOLD TILL T3 - NO FEAR"
-    elif "DIAMOND" in tag:
-        stamp = "💎💎💎 DIAMOND BOMB - PAKKA BOND"
-        note = "👉 HOLD TILL T2/T3"
-    else:
-        stamp = "🥇 GOLD RUNNER - LAMBA JAYEGA"
-        note = "👉 T1 pe 50% BOOK, Baki Trail"
-
-    msg = f"""{stamp}
-━━━━━━━━━━━━━━
-📅 {now} | {pattern} (5M)
-📊 15M Trend: UP ✅ | {vwap_txt}
-📈 RSI 5M: {rsi5} | Vol 5M: {volx}x
-
-🎯 STRIKE: {strike} CE
-
-🛑 SL: {sl} pts (ATR BASED)
-🎯 TGT1: {t1} pts (1:2)
-🎯 TGT2: {t2} pts (1:3)
-🎯 TGT3: {t3} pts (1:4) - RUNNER
-
-{note}
-━━━━━━━━━━━━━━"""
-
-    requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                  data={"chat_id": chat_id, "text": msg}, timeout=10)
-
-def get_15m_trend():
-    d15 = yf.download("^NSEI", interval="15m", period="5d", auto_adjust=True, progress=False)
-    d15.columns = [c[0] if isinstance(c, tuple) else c for c in d15.columns]
-    close = d15['Close']
-    ema20 = close.ewm(span=20).mean().iloc[-1]
-    ema50 = close.ewm(span=50).mean().iloc[-1]
-    delta = close.diff()
-    rsi = 100 - (100 / (1 + delta.where(delta>0,0).ewm(alpha=1/14).mean() / -delta.where(delta<0,0).ewm(alpha=1/14).mean().replace(0,0.001)))
-    return float(close.iloc[-1]) > float(ema20) > float(ema50), int(float(rsi.iloc[-1]))
-
-def run():
-    ist = pytz.timezone('Asia/Kolkata')
-    now_ist = datetime.now(ist)
-    if not (9 <= now_ist.hour <= 15): return
-    if now_ist.hour == 9 and now_ist.minute < 35: return
-    if now_ist.hour == 15 and now_ist.minute > 15: return
-
-    df5 = yf.download("^NSEI", interval="5m", period="2d", auto_adjust=True, progress=False).tail(100)
-    df5.columns = [c[0] if isinstance(c, tuple) else c for c in df5.columns]
-    if len(df5) < 50: return
-
-    dfD = yf.download("^NSEI", interval="1d", period="5d", auto_adjust=True, progress=False)
-    dfD.columns = [c[0] if isinstance(c, tuple) else c for c in dfD.columns]
-    pdl = float(dfD['Low'].iloc[-2]) if len(dfD) >=2 else float(df5['Low'].min())
-
-    last = df5.iloc[-1]
-    prev = df5.iloc[-2]
-    close = df5['Close']
-    high = df5['High']
-    low = df5['Low']
-    vol = df5['Volume']
-
-    typical = (high + low + close)/3
-    vwap = (typical * vol).cumsum() / vol.cumsum()
-    vwap_ok = float(close.iloc[-1]) > float(vwap.iloc[-1])
-
-    tr = (high - low).combine((high - close.shift()).abs(), max).combine((low - close.shift()).abs(), max)
-    atr = float(tr.ewm(alpha=1/14).mean().iloc[-1])
-
-    ema20_5 = close.ewm(span=20).mean()
-    ema50_5 = close.ewm(span=50).mean()
-    ema_ok_5 = float(close.iloc[-1]) > float(ema20_5.iloc[-1]) > float(ema50_5.iloc[-1])
-
-    delta = close.diff()
-    rsi5 = 100 - (100 / (1 + delta.where(delta>0,0).ewm(alpha=1/14).mean() / -delta.where(delta<0,0).ewm(alpha=1/14).mean().replace(0,0.001)))
-    rsi5_val = int(float(rsi5.iloc[-1]))
-
-    v20 = vol.ewm(span=20).mean()
-    volx = float(vol.iloc[-1])/float(v20.iloc[-1]) if float(v20.iloc[-1])>0 else 1
-
-    body = abs(float(last['Close']) - float(last['Open']))
-    wick_low = float(min(float(last['Close']), float(last['Open'])) - float(last['Low']))
-    is_pin = wick_low > body*1.8 and float(last['Close']) > float(last['Open'])
-    is_engulf = float(prev['Close']) < float(prev['Open']) and float(last['Close']) > float(prev['Open'])
-    is_W = abs(float(df5['Low'].tail(30).iloc[-3]) - float(df5['Low'].tail(30).min())) < float(last['Close'])*0.002
-
-    swing_low = float(low.iloc[-20:-2].min()) if len(low) > 22 else float(low.min())
-    is_liq_sweep = (float(last['Low']) < swing_low or float(last['Low']) < pdl) and float(last['Close']) > swing_low and wick_low > body*1.2
-
-    pattern_name = "LIQ SWEEP + W" if is_liq_sweep and is_W else "LIQUIDITY SWEEP" if is_liq_sweep else "W PATTERN" if is_W else "BULLISH PIN BAR" if is_pin else "BULLISH ENGULFING" if is_engulf else None
-    
-    trend_15, rsi15 = get_15m_trend()
-
-    is_gold = ema_ok_5 and vwap_ok and 50 <= rsi5_val <= 70 and volx > 1.0 and trend_15
-    is_diamond = pattern_name and ema_ok_5 and vwap_ok and volx > 1.3 and 52 <= rsi5_val <= 70 and trend_15
-    is_kohinoor = is_liq_sweep and ema_ok_5 and vwap_ok and volx > 1.2 and 50 <= rsi5_val <= 72 and trend_15
-
-    if not (is_gold or is_diamond or is_kohinoor): return
-
-    sl_pts = max(25, min(50, int(atr*1.2)))
-    t1_pts = sl_pts*2
-    t2_pts = sl_pts*3
-    t3_pts = sl_pts*4
-
-    strike = round(int(float(last['Close'])) / 50) * 50
-    
-    if is_kohinoor:
-        tag = "👑👑 KOHINOOR FINAL"
-        pat = pattern_name + " + LIQ GRAB"
-    elif is_diamond:
-        tag = "💎💎 DIAMOND FINAL"
-        pat = pattern_name
-    else:
-        tag = "🥇 GOLD FINAL"
-        pat = pattern_name if pattern_name else "VWAP+EMA SETUP"
-
-    send_tg(pat, rsi5_val, strike, sl_pts, t1_pts, t2_pts, t3_pts, tag, round(volx,1), vwap_ok)
-
-if __name__ == "__main__":
-    run()
+from concurrent.futures import ThreadPoolExecutor
+BOT=os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT=os.getenv("TELEGRAM_CHAT_ID")
+def tg(m):
+ try:
+  ist=pytz.timezone('Asia/Kolkata')
+  stamp=datetime.now(ist).strftime("%d-%b-%Y %I:%M:%S %p IST")
+  requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage",data={"chat_id":CHAT,"text":f"{m}\n\nSTAMP: {stamp}\nORIGINAL V5 - 362"},timeout=30)
+ except: pass
+STOCKS=["RVNL.NS","IRFC.NS","SJVN.NS","NHPC.NS","NBCC.NS","HUDCO.NS","IRCON.NS","RAILTEL.NS","TITAGARH.NS","JUPITERWAGONS.NS","TEXRAIL.NS","BHEL.NS","BDL.NS","BEL.NS","MAZDOCK.NS","COCHINSHIP.NS","HAL.NS","GRSE.NS","BEML.NS","PRAJIND.NS","BHARATFORG.NS","ASHOKLEY.NS","MOTHERSON.NS","ENDURANCE.NS","SONACOMS.NS","UNOMINDA.NS","SANDHAR.NS","JWL.NS","CRAFTSMAN.NS","WELCORP.NS","RATNAMANI.NS","JINDALSTEL.NS","SAIL.NS","NATIONALUM.NS","NMDC.NS","HINDZINC.NS","HINDCOPPER.NS","JSL.NS","JSWENERGY.NS","TORNTPOWER.NS","CESC.NS","POWERGRID.NS","NTPC.NS","TATAPOWER.NS","SUZLON.NS","INOXWIND.NS","BORORENEW.NS","KPIL.NS","KEC.NS","KALPATPOWR.NS","CDSL.NS","BSE.NS","ANGELONE.NS","MCX.NS","IEX.NS","CAMS.NS","KFINTECH.NS","MOTILALOFS.NS","IIFL.NS","NUVAMA.NS","ANANDRATHI.NS","DIXON.NS","KAYNES.NS","SYRMA.NS","AMBER.NS","PGEL.NS","CGPOWER.NS","KEI.NS","RRKABEL.NS","APARINDS.NS","POLYCAB.NS","VOLTAS.NS","BLUESTARCO.NS","WHIRLPOOL.NS","CROMPTON.NS","HAVELLS.NS","KALYANKJIL.NS","PCJEWELLER.NS","KAJARIACER.NS","TANLA.NS","SAFARI.NS","CERA.NS","KPRMILL.NS","TRIDENT.NS","WELSPUNLIV.NS","ARVIND.NS","PAGEIND.NS","RAYMOND.NS","VBL.NS","VARUNBEV.NS","PATANJALI.NS","AWL.NS","AFFLE.NS","ROUTE.NS","KPITTECH.NS","PERSISTENT.NS","COFORGE.NS","BSOFT.NS","ZENSAR.NS","CYIENT.NS","INTELLECT.NS","MASTEK.NS","TATAELXSI.NS","TATATECH.NS","DEEPAKNTR.NS","ATUL.NS","NAVINFLUOR.NS","FINEORG.NS","CLEAN.NS","AARTIIND.NS","VINATIORGA.NS","BALAMINES.NS","CHAMBLFERT.NS","COROMANDEL.NS","FACT.NS","GNFC.NS","CHALET.NS","LEMONTREE.NS","EIHOTEL.NS","INDHOTEL.NS","INDIANB.NS","UNIONBANK.NS","BANKINDIA.NS","CENTRALBK.NS","BANKBARODA.NS","PNB.NS","CANBK.NS","IDFCFIRSTB.NS","FEDERALBNK.NS","EQUITASBNK.NS","BANDHANBNK.NS","CREDITACC.NS","M&MFIN.NS","POONAWALLA.NS","LTF.NS","PNBHOUSING.NS","AAVAS.NS","HOMEFIRST.NS","MASFIN.NS","BRIGADE.NS","SOBHA.NS","LODHA.NS","DLF.NS","GODREJPROP.NS","OBEROIRLTY.NS","PRESTIGE.NS","PHOENIXLTD.NS","GLENMARK.NS","LAURUSLABS.NS","GRANULES.NS","SYNGENE.NS","LALPATHLAB.NS","MAXHEALTH.NS","FORTIS.NS","MEDANTA.NS","KIMS.NS","GLAND.NS","HFCL.NS","IDEA.NS","ZOMATO.NS","PAYTM.NS","NYKAA.NS","OIL.NS","GSPL.NS","PETRONET.NS","IGL.NS","MGL.NS","GUJGASLTD.NS","BALKRISIND.NS","MRF.NS","APOLLOTYRE.NS","CEAT.NS","BATAINDIA.NS","DABUR.NS","MARICO.NS","GODREJCP.NS","BRITANNIA.NS","TATACONSUM.NS","JUBLFOOD.NS","INDIGO.NS","IRB.NS","NCC.NS","ASTRAL.NS","FINCABLES.NS","JINDALSAW.NS","WELSPUNIND.NS","HINDPETRO.NS","BPCL.NS","IOC.NS","GAIL.NS","ONGC.NS","VEDL.NS","COALINDIA.NS","UPL.NS","PIIND.NS","SRF.NS","LUPIN.NS","CIPLA.NS","SUNPHARMA.NS","DIVISLAB.NS","DRREDDY.NS","MANKIND.NS","CUMMINSIND.NS","BOSCHLTD.NS","EICHERMOT.NS","BAJAJ-AUTO.NS","HEROMOTOCO.NS","TVSMOTOR.NS","ULTRACEMCO.NS","GRASIM.NS","AMBUJACEM.NS","ACC.NS","JKCEMENT.NS","ASIANPAINT.NS","BERGEPAINT.NS","PIDILITIND.NS","ABB.NS","SIEMENS.NS","THERMAX.NS","SCHAEFFLER.NS","TITAN.NS","DMART.NS","TRENT.NS","INDIAMART.NS","OFSS.NS","LTIM.NS","HCLTECH.NS","WIPRO.NS","TECHM.NS","BAJAJFINSV.NS","SBILIFE.NS","HDFCLIFE.NS","MUTHOOTFIN.NS","CHOLAFIN.NS","SHRIRAMFIN.NS","RECLTD.NS","PFC.NS","INDUSINDBK.NS","KOTAKBANK.NS","AXISBANK.NS","AUBANK.NS","LICI.NS","YESBANK.NS","HDFCAMC.NS","DELHIVERY.NS","TATACHEM.NS","ALKEM.NS","TORNTPHARM.NS","MTARTECH.NS","ADANIENT.NS","ADANIPORTS.NS","ADANIGREEN.NS","ADANIPOWER.NS","ATGL.NS","APOLLOHOSP.NS","AUROPHARMA.NS","BIOCON.NS","DALBHARAT.NS","ESCORTS.NS","EXIDEIND.NS","HDFCBANK.NS","HINDALCO.NS","HINDUNILVR.NS","ICICIBANK.NS","ICICIGI.NS","IRCTC.NS","ITC.NS","JSWSTEEL.NS","LT.NS","M&M.NS","MARUTI.NS","NESTLEIND.NS","RELIANCE.NS","SBIN.NS","TATAMOTORS.NS","TATASTEEL.NS","TCS.NS","BAJAJFINANCE.NS"]
+def get_cap(s):
+ try:
+  c=yf.Ticker(s).fast_info.market_cap
+  return c/1e7 if c else 0
+ except: return 0
+def check(s):
+ try:
+  cap=get_cap(s)
+  if cap<800 or cap>25000: return None
+  df=yf.download(s,period="1y",interval="1d",progress=False,auto_adjust=True)
+  if len(df)<200: return None
+  df.columns=[c[0] if isinstance(c,tuple) else c for c in df.columns]
+  c=df['Close'].iloc[-1]; l=df['Low'].iloc[-1]; h=df['High'].iloc[-1]; o=df['Open'].iloc[-1]
+  prev_low=df['Low'].iloc[-21:-1].min()
+  sweep=l < prev_low and c > prev_low
+  body=abs(c-o); 
+  if body==0: body=0.1
+  hammer=(h-l) > 2.2*body and c>o
+  vol_avg=df['Volume'].iloc[-20:-1].mean()
+  vol_blast=df['Volume'].iloc[-1] > vol_avg*2.2
+  high_200=df['High'].iloc[-200:-1].max()
+  near_high=c > high_200*0.85
+  if not (sweep and hammer and vol_blast and near_high): return None
+  sl=prev_low*0.97; tgt1=c*1.25; tgt2=c*1.60
+  return f"💎 ORIGINAL {s.replace('.NS','')} Rs {c:.0f} Cap {cap:.0f}Cr SL {sl:.0f} TGT {tgt1:.0f}/{tgt2:.0f} Vol x{df['Volume'].iloc[-1]/vol_avg:.1f}"
+ except: return None
+with ThreadPoolExecutor(max_workers=6) as ex:
+ hits=[r for r in ex.map(check,STOCKS) if r]
+if hits:
+ tg(f"🔥 ORIGINAL V5 - {len(hits)} GAME CHANGER:\n\n" + "\n".join(hits[:12]))
+else:
+ tg("ORIGINAL V5 - Aaj koi nahi")
