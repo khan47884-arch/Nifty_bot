@@ -1,0 +1,19 @@
+name: KAALA HEERA 385 FINAL
+on:
+  schedule:
+    - cron: '45 9 * * 1-5'
+    - cron: '30 4 * * 6'
+  workflow_dispatch:
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: pip install yfinance requests pytz pandas numpy
+      - run: python final.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
