@@ -54,4 +54,5 @@ def run():
         strike = round(index_price / 50) * 50
         send_tg(pattern, rsi_val, strike, 30, 60, 90)
 
-run()
+
+        return float(close.iloc[-1]) > float(ema20.iloc[-1]) and int(float(rsi_series.iloc[-1])) > 52, int(float(rsi_series.iloc[-1]))
