@@ -102,4 +102,4 @@ if __name__ == "__main__":
         msg = f"💎💎 REAL DIAMOND MILA - {len(found)} STOCK 💎💎\n\n" + "\n\n".join(found[:10])
         print(msg)
         send_telegram(msg)
-send_telegram("💎 TEST - Bot zinda hai, Real Diamond scanner ready hai!")
+        send_telegram("💎 TEST - Bot zinda hai, Real Diamond scanner ready hai!")
