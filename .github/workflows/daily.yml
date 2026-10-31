@@ -12,13 +12,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install
-        run: pip install yfinance requests pyyaml
+        run: pip install yfinance requests
       - name: Run
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          echo "telegram:
-            bot_token: \"$TELEGRAM_BOT_TOKEN\"
-            chat_id: \"$TELEGRAM_CHAT_ID\"" > option.yml
-          python main.py
+        run: python screener.py
