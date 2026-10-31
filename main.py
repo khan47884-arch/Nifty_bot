@@ -1,69 +1,57 @@
 import yfinance as yf
-import os, requests
+import requests
+import yaml
 from datetime import datetime
 
-BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+with open('option.yml','r') as f:
+    cfg = yaml.safe_load(f)
 
-def send_telegram(msg):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    try: requests.post(url, data={"chat_id": CHAT_ID, "text": msg}, timeout=10)
-    except: pass
+def send_tg(pattern, rsi, strike, sl, tgt1, tgt2):
+    token = cfg['telegram']['bot_token']
+    chat_id = cfg['telegram']['chat_id']
+    now = datetime.now().strftime("%d-%m %H:%M")
+    msg = f"""🎩 OPTION BOND - NIFTY [5M/15M]
+📅 {now}
+📊 {pattern} VERIFY (5M)
+📈 RSI: {rsi}
+🎯 STRIKE: {strike} CE
+🛑 SL: {sl} pts
+🎯 TGT: {tgt1} pts (1:2) | {tgt2} pts
+👉 {strike} CE BUY - Pakka Bond"""
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    requests.post(url, data={"chat_id": chat_id, "text": msg})
 
-def rsi(s, p=14):
-    d = s.diff()
-    g = d.where(d>0,0).ewm(alpha=1/p).mean()
-    l = (-d.where(d<0,0)).ewm(alpha=1/p).mean()
-    return 100 - (100/(1+(g/l)))
+def check_patterns(df_5m):
+    last = df_5m.iloc[-1]
+    prev = df_5m.iloc[-2]
+    body = abs(float(last['Close']) - float(last['Open']))
+    wick_low = float(min(last['Close'], last['Open']) - last['Low'])
+    is_Pin = wick_low > body * 2 and float(last['Close']) > float(last['Open'])
+    is_Engulf = float(prev['Close']) < float(prev['Open']) and float(last['Close']) > float(last['Open'])
+    is_W = float(df_5m['Low'].iloc[-2]) == float(df_5m['Low'].min()) and float(last['Close']) > float(prev['High'])
+    if is_W: return "W PATTERN"
+    if is_Pin: return "BULLISH PIN BAR"
+    if is_Engulf: return "BULLISH ENGULFING"
+    return None
 
-def main():
-    for sym, name in [("^NSEI","NIFTY"), ("^BSESN","SENSEX")]:
-        try:
-            df5 = yf.download(sym, period="2d", interval="5m", progress=False, auto_adjust=True)
-            df15 = yf.download(sym, period="5d", interval="15m", progress=False, auto_adjust=True)
-            if len(df5)<30 or len(df15)<30: continue
-            o,h,l,c = map(float, df5.iloc[-1][["Open","High","Low","Close"]])
-            po,ph,pl,pc = map(float, df5.iloc[-2][["Open","High","Low","Close"]])
-            body = abs(c-o)
-            if body==0: body=0.01
-            lower = min(o,c)-l
-            upper = h-max(o,c)
-            rsi5 = float(rsi(df5["Close"]).iloc[-1])
-            close15 = float(df15.iloc[-1]["Close"])
-            ema20 = float(df15["Close"].ewm(span=20).mean().iloc[-1])
-            rsi15 = float(rsi(df15["Close"]).iloc[-1])
+def get_15m_trend():
+    data_15 = yf.download("^NSEI", interval="15m", period="5d", auto_adjust=True)
+    close = data_15['Close']
+    ema20 = close.ewm(span=20).mean().iloc[-1]
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0).ewm(com=13).mean()
+    loss = -delta.where(delta < 0, 0).ewm(com=13).mean()
+    rsi_series = 100 - (100 / (1 + gain / loss.replace(0, 0.01)))
+    return float(close.iloc[-1]) > float(ema20) and int(float(rsi_series.iloc[-1])) > 52, int(float(rsi_series.iloc[-1]))
 
-            pattern = ""
-            bullish = False
-            bearish = False
+def run():
+    df_5m = yf.download("^NSEI", interval="5m", period="1d", auto_adjust=True).tail(15)
+    df_5m.columns = [c[0] if isinstance(c, tuple) else c for c in df_5m.columns]
+    pattern = check_patterns(df_5m)
+    trend_up, rsi_val = get_15m_trend()
+    if pattern and trend_up:
+        index_price = int(float(df_5m['Close'].iloc[-1]))
+        strike = round(index_price / 50) * 50
+        send_tg(pattern, rsi_val, strike, 30, 60, 90)
 
-            if pc < po and c > o and c >= po and o <= pc:
-                pattern = "BULLISH ENGULFING"
-                bullish = True
-            elif pc > po and c < o and o >= pc and c <= po:
-                pattern = "BEARISH ENGULFING"
-                bearish = True
-            elif lower > body*2 and upper < body*0.5:
-                pattern = "HAMMER"
-                bullish = True
-            elif upper > body*2 and lower < body*0.5:
-                pattern = "SHOOTING STAR"
-                bearish = True
-            elif lower > body*2.5:
-                pattern = "BULLISH PIN BAR"
-                bullish = True
-            elif upper > body*2.5:
-                pattern = "BEARISH PIN BAR"
-                bearish = True
-
-            if pattern == "": continue
-            now = datetime.now().strftime('%d-%m-%Y %H:%M')
-
-            if bullish and close15>ema20 and rsi15>55:
-                send_telegram(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pattern} - BUY\n📈 15M Uptrend RSI {rsi15:.0f} | 5M RSI {rsi5:.0f}\n👉 CE BUY - {pattern}")
-            elif bearish and close15<ema20 and rsi15<45:
-                send_telegram(f"🎩 OPTION BOND - {name} [5M/15M]\n📅 {now}\n________________________\n\n📊 {pattern} - SELL\n📉 15M Downtrend RSI {rsi15:.0f} | 5M RSI {rsi5:.0f}\n👉 PE BUY - {pattern}")
-        except: pass
-
-if __name__=="__main__":
-    main()
+run()
