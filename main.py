@@ -1,58 +1,98 @@
-import yfinance as yf
-import requests
-import yaml
+import yfinance as yf, requests, yaml
 from datetime import datetime
+import pytz
 
 with open('option.yml','r') as f:
     cfg = yaml.safe_load(f)
 
-def send_tg(pattern, rsi, strike, sl, tgt1, tgt2):
+def send_tg(pattern, rsi5, strike, sl, t1, t2, tag, volx, vwap_ok):
     token = cfg['telegram']['bot_token']
     chat_id = cfg['telegram']['chat_id']
     now = datetime.now().strftime("%d-%m %H:%M")
-    msg = f"""🎩 OPTION BOND - NIFTY [5M/15M]
+    vwap_txt = "VWAP UP" if vwap_ok else "VWAP DOWN"
+    msg = f"""{tag} OPTION FINAL [5M]
 📅 {now}
-📊 {pattern} VERIFY (5M)
-📈 RSI: {rsi}
-🎯 STRIKE: {strike} CE
-🛑 SL: {sl} pts
-🎯 TGT: {tgt1} pts (1:2) | {tgt2} pts
-👉 {strike} CE BUY - Pakka Bond"""
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    requests.post(url, data={"chat_id": chat_id, "text": msg})
-
-def check_patterns(df_5m):
-    last = df_5m.iloc[-1]
-    prev = df_5m.iloc[-2]
-    body = abs(float(last['Close']) - float(last['Open']))
-    wick_low = float(min(last['Close'], last['Open']) - last['Low'])
-    is_Pin = wick_low > body * 2 and float(last['Close']) > float(last['Open'])
-    is_Engulf = float(prev['Close']) < float(prev['Open']) and float(last['Close']) > float(last['Open'])
-    is_W = float(df_5m['Low'].iloc[-2]) == float(df_5m['Low'].min()) and float(last['Close']) > float(prev['High'])
-    if is_W: return "W PATTERN"
-    if is_Pin: return "BULLISH PIN BAR"
-    if is_Engulf: return "BULLISH ENGULFING"
-    return None
+📊 {pattern} | {vwap_txt}
+📈 RSI 5M:{rsi5} | Vol:{volx}x
+🎯 {strike} CE | SL:{sl} (ATR) | TGT:{t1}/{t2}
+👉 BUY - 10/10 SETUP"""
+    requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                  data={"chat_id": chat_id, "text": msg}, timeout=10)
 
 def get_15m_trend():
-    data_15 = yf.download("^NSEI", interval="15m", period="5d", auto_adjust=True)
-    close = data_15['Close']
+    d15 = yf.download("^NSEI", interval="15m", period="5d", auto_adjust=True, progress=False)
+    d15.columns = [c[0] if isinstance(c, tuple) else c for c in d15.columns]
+    close = d15['Close']
     ema20 = close.ewm(span=20).mean().iloc[-1]
+    ema50 = close.ewm(span=50).mean().iloc[-1]
     delta = close.diff()
-    gain = delta.where(delta > 0, 0).ewm(com=13).mean()
-    loss = -delta.where(delta < 0, 0).ewm(com=13).mean()
-    rsi_series = 100 - (100 / (1 + gain / loss.replace(0, 0.01)))
-    return float(close.iloc[-1]) > float(ema20) and int(float(rsi_series.iloc[-1])) > 52, int(float(rsi_series.iloc[-1]))
+    rsi = 100 - (100 / (1 + delta.where(delta>0,0).ewm(alpha=1/14).mean() / -delta.where(delta<0,0).ewm(alpha=1/14).mean().replace(0,0.001)))
+    return float(close.iloc[-1]) > float(ema20) > float(ema50), int(float(rsi.iloc[-1]))
 
 def run():
-    df_5m = yf.download("^NSEI", interval="5m", period="1d", auto_adjust=True).tail(15)
-    df_5m.columns = [c[0] if isinstance(c, tuple) else c for c in df_5m.columns]
-    pattern = check_patterns(df_5m)
-    trend_up, rsi_val = get_15m_trend()
-    if pattern and trend_up:
-        index_price = int(float(df_5m['Close'].iloc[-1]))
-        strike = round(index_price / 50) * 50
-        send_tg(pattern, rsi_val, strike, 30, 60, 90)
+    ist = pytz.timezone('Asia/Kolkata')
+    now_ist = datetime.now(ist)
+    if not (9 <= now_ist.hour <= 15):
+        return
+    if now_ist.hour == 9 and now_ist.minute < 35:
+        return
+    if now_ist.hour == 15 and now_ist.minute > 15:
+        return
 
+    df5 = yf.download("^NSEI", interval="5m", period="2d", auto_adjust=True, progress=False).tail(100)
+    df5.columns = [c[0] if isinstance(c, tuple) else c for c in df5.columns]
+    if len(df5) < 50:
+        return
 
-        return float(close.iloc[-1]) > float(ema20.iloc[-1]) and int(float(rsi_series.iloc[-1])) > 52, int(float(rsi_series.iloc[-1]))
+    last = df5.iloc[-1]
+    prev = df5.iloc[-2]
+    close = df5['Close']
+    high = df5['High']
+    low = df5['Low']
+    vol = df5['Volume']
+
+    typical = (high + low + close)/3
+    vwap = (typical * vol).cumsum() / vol.cumsum()
+    vwap_ok = float(close.iloc[-1]) > float(vwap.iloc[-1])
+
+    tr = (high - low).combine((high - close.shift()).abs(), max).combine((low - close.shift()).abs(), max)
+    atr = tr.ewm(alpha=1/14).mean().iloc[-1]
+    atr = float(atr)
+
+    ema20_5 = close.ewm(span=20).mean()
+    ema50_5 = close.ewm(span=50).mean()
+    ema_ok_5 = float(close.iloc[-1]) > float(ema20_5.iloc[-1]) > float(ema50_5.iloc[-1])
+
+    delta = close.diff()
+    rsi5 = 100 - (100 / (1 + delta.where(delta>0,0).ewm(alpha=1/14).mean() / -delta.where(delta<0,0).ewm(alpha=1/14).mean().replace(0,0.001)))
+    rsi5_val = int(float(rsi5.iloc[-1]))
+
+    v20 = vol.ewm(span=20).mean()
+    volx = float(vol.iloc[-1])/float(v20.iloc[-1]) if float(v20.iloc[-1])>0 else 1
+
+    body = abs(float(last['Close']) - float(last['Open']))
+    wick_low = float(min(float(last['Close']), float(last['Open'])) - float(last['Low']))
+    is_pin = wick_low > body*1.8 and float(last['Close']) > float(last['Open'])
+    is_engulf = float(prev['Close']) < float(prev['Open']) and float(last['Close']) > float(prev['Open'])
+    is_W = abs(float(df5['Low'].tail(30).iloc[-3]) - float(df5['Low'].tail(30).min())) < float(last['Close'])*0.002
+
+    pattern = "W PATTERN" if is_W else "BULLISH PIN BAR" if is_pin else "BULLISH ENGULFING" if is_engulf else None
+    trend_15, rsi15 = get_15m_trend()
+
+    is_gold = ema_ok_5 and vwap_ok and 50 <= rsi5_val <= 70 and volx > 1.0 and trend_15
+    is_diamond = pattern and ema_ok_5 and vwap_ok and volx > 1.3 and 52 <= rsi5_val <= 70 and trend_15
+
+    if not (is_gold or is_diamond):
+        return
+
+    sl_pts = max(25, min(50, int(atr*1.2)))
+    t1_pts = sl_pts*2
+    t2_pts = sl_pts*3
+
+    strike = round(int(float(last['Close'])) / 50) * 50
+    tag = "💎💎 DIAMOND FINAL" if is_diamond else "🥇 GOLD FINAL"
+    pat = pattern if pattern else "VWAP+EMA SETUP"
+    send_tg(pat, rsi5_val, strike, sl_pts, t1_pts, t2_pts, tag, round(volx,1), vwap_ok)
+
+if __name__ == "__main__":
+    run()
