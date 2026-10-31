@@ -5,17 +5,35 @@ import pytz
 with open('option.yml','r') as f:
     cfg = yaml.safe_load(f)
 
-def send_tg(pattern, rsi5, strike, sl, t1, t2, tag, volx, vwap_ok):
+def send_tg(pattern, rsi5, strike, sl, t1, t2, t3, tag, volx, vwap_ok):
     token = cfg['telegram']['bot_token']
     chat_id = cfg['telegram']['chat_id']
     now = datetime.now().strftime("%d-%m %H:%M")
-    vwap_txt = "VWAP UP" if vwap_ok else "VWAP DOWN"
-    msg = f"""{tag} OPTION FINAL [5M]
-📅 {now}
-📊 {pattern} | {vwap_txt}
-📈 RSI 5M:{rsi5} | Vol:{volx}x
-🎯 {strike} CE | SL:{sl} (ATR) | TGT:{t1}/{t2}
-👉 BUY - 10/10 SETUP"""
+    vwap_txt = "VWAP UP ✅" if vwap_ok else "VWAP DOWN ❌"
+    
+    if "DIAMOND" in tag:
+        stamp = "💎💎💎 DIAMOND BOMB - PAKKA BOND"
+        note = "👉 HOLD TILL T2/T3 - Pattern Confirm"
+    else:
+        stamp = "🥇 GOLD RUNNER - LAMBA JAYEGA"
+        note = "👉 T1 pe 50% BOOK, Baki Trail"
+
+    msg = f"""{stamp}
+━━━━━━━━━━━━━━
+📅 {now} | {pattern} (5M)
+📊 15M Trend: UP ✅ | {vwap_txt}
+📈 RSI 5M: {rsi5} | Vol 5M: {volx}x
+
+🎯 STRIKE: {strike} CE
+
+🛑 SL: {sl} pts (ATR BASED)
+🎯 TGT1: {t1} pts (1:2)
+🎯 TGT2: {t2} pts (1:3)
+🎯 TGT3: {t3} pts (1:4) - RUNNER
+
+{note}
+━━━━━━━━━━━━━━"""
+
     requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
                   data={"chat_id": chat_id, "text": msg}, timeout=10)
 
@@ -88,11 +106,12 @@ def run():
     sl_pts = max(25, min(50, int(atr*1.2)))
     t1_pts = sl_pts*2
     t2_pts = sl_pts*3
+    t3_pts = sl_pts*4
 
     strike = round(int(float(last['Close'])) / 50) * 50
     tag = "💎💎 DIAMOND FINAL" if is_diamond else "🥇 GOLD FINAL"
     pat = pattern if pattern else "VWAP+EMA SETUP"
-    send_tg(pat, rsi5_val, strike, sl_pts, t1_pts, t2_pts, tag, round(volx,1), vwap_ok)
+    send_tg(pat, rsi5_val, strike, sl_pts, t1_pts, t2_pts, t3_pts, tag, round(volx,1), vwap_ok)
 
 if __name__ == "__main__":
     run()
