@@ -1,13 +1,11 @@
-import yfinance as yf, requests, yaml
+import yfinance as yf, requests, os
 from datetime import datetime
 import pytz
 
-with open('option.yml','r') as f:
-    cfg = yaml.safe_load(f)
-
 def send_tg(pattern, rsi5, strike, sl, t1, t2, t3, tag, volx, vwap_ok):
-    token = cfg['telegram']['bot_token']
-    chat_id = cfg['telegram']['chat_id']
+    token = os.getenv('TELEGRAM_BOT_TOKEN')
+    chat_id = os.getenv('TELEGRAM_CHAT_ID')
+    if not token or not chat_id: return
     now = datetime.now().strftime("%d-%m %H:%M")
     vwap_txt = "VWAP UP ✅" if vwap_ok else "VWAP DOWN ❌"
     
