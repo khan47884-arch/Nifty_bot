@@ -2,7 +2,7 @@ name: daily
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 4 * * 1-5'
+    - cron: '*/5 3-10 * * 1-5'
 jobs:
   bot:
     runs-on: ubuntu-latest
@@ -12,18 +12,13 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install
-        run: pip install yfinance requests
+        run: pip install yfinance requests pyyaml
       - name: Run
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python - << 'PY'
-          import requests, os, datetime
-          BOT=os.getenv('TELEGRAM_BOT_TOKEN')
-          CHAT=os.getenv('TELEGRAM_CHAT_ID')
-          def send(m):
-              requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=20)
-          now=datetime.datetime.now().strftime('%d-%m-%Y %H:%M')
-          send(f"⚪ Aaj ELITE moka nahi mila [600+ MIX SCAN] - Bot OK hai\n📅 {now}")
-          PY
+          echo "telegram:
+            bot_token: \"$TELEGRAM_BOT_TOKEN\"
+            chat_id: \"$TELEGRAM_CHAT_ID\"" > option.yml
+          python main.py
