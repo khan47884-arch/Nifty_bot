@@ -11,9 +11,12 @@ def send_tg(pattern, rsi5, strike, sl, t1, t2, t3, tag, volx, vwap_ok):
     now = datetime.now().strftime("%d-%m %H:%M")
     vwap_txt = "VWAP UP ✅" if vwap_ok else "VWAP DOWN ❌"
     
-    if "DIAMOND" in tag:
+    if "KOHINOOR" in tag:
+        stamp = "👑👑👑 KOHINOOR - LIQUIDITY BOMB"
+        note = "🔥 LIQ SWEEP + PATTERN = 200 PT BOMB\n👉 HOLD TILL T3 - NO FEAR"
+    elif "DIAMOND" in tag:
         stamp = "💎💎💎 DIAMOND BOMB - PAKKA BOND"
-        note = "👉 HOLD TILL T2/T3 - Pattern Confirm"
+        note = "👉 HOLD TILL T2/T3"
     else:
         stamp = "🥇 GOLD RUNNER - LAMBA JAYEGA"
         note = "👉 T1 pe 50% BOOK, Baki Trail"
@@ -50,17 +53,17 @@ def get_15m_trend():
 def run():
     ist = pytz.timezone('Asia/Kolkata')
     now_ist = datetime.now(ist)
-    if not (9 <= now_ist.hour <= 15):
-        return
-    if now_ist.hour == 9 and now_ist.minute < 35:
-        return
-    if now_ist.hour == 15 and now_ist.minute > 15:
-        return
+    if not (9 <= now_ist.hour <= 15): return
+    if now_ist.hour == 9 and now_ist.minute < 35: return
+    if now_ist.hour == 15 and now_ist.minute > 15: return
 
     df5 = yf.download("^NSEI", interval="5m", period="2d", auto_adjust=True, progress=False).tail(100)
     df5.columns = [c[0] if isinstance(c, tuple) else c for c in df5.columns]
-    if len(df5) < 50:
-        return
+    if len(df5) < 50: return
+
+    dfD = yf.download("^NSEI", interval="1d", period="5d", auto_adjust=True, progress=False)
+    dfD.columns = [c[0] if isinstance(c, tuple) else c for c in dfD.columns]
+    pdl = float(dfD['Low'].iloc[-2]) if len(dfD) >=2 else float(df5['Low'].min())
 
     last = df5.iloc[-1]
     prev = df5.iloc[-2]
@@ -74,8 +77,7 @@ def run():
     vwap_ok = float(close.iloc[-1]) > float(vwap.iloc[-1])
 
     tr = (high - low).combine((high - close.shift()).abs(), max).combine((low - close.shift()).abs(), max)
-    atr = tr.ewm(alpha=1/14).mean().iloc[-1]
-    atr = float(atr)
+    atr = float(tr.ewm(alpha=1/14).mean().iloc[-1])
 
     ema20_5 = close.ewm(span=20).mean()
     ema50_5 = close.ewm(span=50).mean()
@@ -94,14 +96,18 @@ def run():
     is_engulf = float(prev['Close']) < float(prev['Open']) and float(last['Close']) > float(prev['Open'])
     is_W = abs(float(df5['Low'].tail(30).iloc[-3]) - float(df5['Low'].tail(30).min())) < float(last['Close'])*0.002
 
-    pattern = "W PATTERN" if is_W else "BULLISH PIN BAR" if is_pin else "BULLISH ENGULFING" if is_engulf else None
+    swing_low = float(low.iloc[-20:-2].min()) if len(low) > 22 else float(low.min())
+    is_liq_sweep = (float(last['Low']) < swing_low or float(last['Low']) < pdl) and float(last['Close']) > swing_low and wick_low > body*1.2
+
+    pattern_name = "LIQ SWEEP + W" if is_liq_sweep and is_W else "LIQUIDITY SWEEP" if is_liq_sweep else "W PATTERN" if is_W else "BULLISH PIN BAR" if is_pin else "BULLISH ENGULFING" if is_engulf else None
+    
     trend_15, rsi15 = get_15m_trend()
 
     is_gold = ema_ok_5 and vwap_ok and 50 <= rsi5_val <= 70 and volx > 1.0 and trend_15
-    is_diamond = pattern and ema_ok_5 and vwap_ok and volx > 1.3 and 52 <= rsi5_val <= 70 and trend_15
+    is_diamond = pattern_name and ema_ok_5 and vwap_ok and volx > 1.3 and 52 <= rsi5_val <= 70 and trend_15
+    is_kohinoor = is_liq_sweep and ema_ok_5 and vwap_ok and volx > 1.2 and 50 <= rsi5_val <= 72 and trend_15
 
-    if not (is_gold or is_diamond):
-        return
+    if not (is_gold or is_diamond or is_kohinoor): return
 
     sl_pts = max(25, min(50, int(atr*1.2)))
     t1_pts = sl_pts*2
@@ -109,8 +115,17 @@ def run():
     t3_pts = sl_pts*4
 
     strike = round(int(float(last['Close'])) / 50) * 50
-    tag = "💎💎 DIAMOND FINAL" if is_diamond else "🥇 GOLD FINAL"
-    pat = pattern if pattern else "VWAP+EMA SETUP"
+    
+    if is_kohinoor:
+        tag = "👑👑 KOHINOOR FINAL"
+        pat = pattern_name + " + LIQ GRAB"
+    elif is_diamond:
+        tag = "💎💎 DIAMOND FINAL"
+        pat = pattern_name
+    else:
+        tag = "🥇 GOLD FINAL"
+        pat = pattern_name if pattern_name else "VWAP+EMA SETUP"
+
     send_tg(pat, rsi5_val, strike, sl_pts, t1_pts, t2_pts, t3_pts, tag, round(volx,1), vwap_ok)
 
 if __name__ == "__main__":
