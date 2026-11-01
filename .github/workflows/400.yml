@@ -1,0 +1,20 @@
+name: 400 Brahmastra
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 3 * * 1-5'
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: pip install yfinance requests pandas pytz
+      - name: Run 400
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python 400.py
