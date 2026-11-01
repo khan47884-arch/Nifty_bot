@@ -1,4 +1,7 @@
-# FILE: 400.py - BRAHMASTRA V9 - 400 UNIVERSE
+#import requests, os
+BOT=os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT=os.getenv("TELEGRAM_CHAT_ID")
+requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id":CHAT,"text":"✅ 400 BOT CONNECTED - LIVE HAI BOSS 🚀"}) FILE: 400.py - BRAHMASTRA V9 - 400 UNIVERSE
 import yfinance as yf, requests, os, json, time
 from concurrent.futures import ThreadPoolExecutor
 import pytz
