@@ -36,7 +36,6 @@ def get_fast(sym, interval):
         if len(df)<20: return None
         df['EMA20']=df['Close'].ewm(span=20).mean()
         df['EMA50']=df['Close'].ewm(span=50).mean()
-        df['VWAP']=df['Close'].rolling(20).mean()
         delta=df['Close'].diff()
         gain=delta.where(delta>0,0).rolling(14).mean()
         loss=-delta.where(delta<0,0).rolling(14).mean()
@@ -70,29 +69,15 @@ def run_for(sym,name,gap):
     if can_send(name,f"{strike} {side}",side):
         msg=f"""🚀 {name} {side} - 15M TREND + 5M BREAKOUT
 📅 {datetime.now(IST).strftime('%d-%m %H:%M')} | {name}: {last5['Close']:.0f}
-📈 15M: {'UP ✅' if up15 else 'DOWN ✅'} RSI:{rsi15:.0f} | 5M RSI:{rsi5:.0f} Vol:{float(last5['Volx']):.1f}x
+📈 15M TREND: {'UP ✅' if up15 else 'DOWN ✅'} RSI15:{rsi15:.0f} | 5M RSI5:{rsi5:.0f} Vol:{float(last5['Volx']):.1f}x
 💥 BREAK: {last5['Close']:.0f} vs {prev5['High']:.0f if side=='CE' else prev5['Low']:.0f}
-🎯 STRIKE: {strike} {side}
-💰 ENTRY: CURRENT PRICE PE LO
-🛑 SL: {sl} Pts (ATR Pure)
-
-🎯 T1: +60 Pts (50% Book)
-🎯 T2: +100 Pts (30% Book)
-🎯 T3: +200 Pts (Maha Target)
-
+🎯 STRIKE: {strike} {side} - CURRENT PE LO
+🛑 SL: -{sl} pts | 🎯 +60 pts
 ⚡ PROFITABLE TRADERS AI - 101%"""
         send_tg(msg); mark_sent(name,f"{strike} {side}",side); return True
     return False
 
 if __name__=="__main__":
-    send_tg(f"""🔴 BOT LIVE - {datetime.now(IST).strftime('%d-%m %H:%M:%S')}
-✅ Connection OK - Checking Market...""")
-    time.sleep(1)
-    found1=run_for("^NSEI","NIFTY",50)
-    time.sleep(1)
-    found2=run_for("^BSESN","SENSEX",100)
-    if not found1 and not found2:
-        send_tg(f"""ℹ️ {datetime.now(IST).strftime('%d-%m %H:%M')} No Breakout
-📊 Abhi koi signal nahi
-✅ Bot ACTIVE hai
-⏰ 9:15 AM pe auto signal ayega""")
+    run_for("^NSEI","NIFTY",50)
+    time.sleep(2)
+    run_for("^BSESN","SENSEX",100)
