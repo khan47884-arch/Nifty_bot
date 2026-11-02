@@ -1,9 +1,9 @@
 name: MCX Brahmastra 5 State
 on:
   schedule:
-    - cron: '30 3 * * 1-5'
-    - cron: '0 14 * * 1-5'
-    - cron: '30 16 * * 1-5'
+    - cron: '30,45 10 * * 1-5'
+    - cron: '*/15 11-16 * * 1-5'
+    - cron: '0,15,30 17 * * 1-5'
   workflow_dispatch:
 jobs:
   run:
