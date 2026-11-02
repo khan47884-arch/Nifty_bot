@@ -10,7 +10,7 @@ def can_send(i,s,sd):
     if not os.path.exists(LAST_FILE): return True
     try:
         d=json.load(open(LAST_FILE))
-        if time.time()-d.get(k,0)<900: return False
+        if time.time()-d.get(k,0)<600: return False
     except: pass
     return True
 def mark_sent(i,s,sd):
@@ -23,7 +23,8 @@ def mark_sent(i,s,sd):
 def send_tg(t):
     tk=os.getenv('TELEGRAM_BOT_TOKEN')
     cid=os.getenv('TELEGRAM_CHAT_ID')
-    try: requests.post(f"https://api.telegram.org/bot{tk}/sendMessage",data={"chat_id":cid,"text":t},timeout=15)
+    try:
+        requests.post(f"https://api.telegram.org/bot{tk}/sendMessage",data={"chat_id":cid,"text":t},timeout=15)
     except: pass
 
 def add_ind(df):
@@ -41,44 +42,37 @@ def add_ind(df):
 def get_data(sym):
     df1=yf.download(sym,period="5d",interval="1m",progress=False,auto_adjust=True)
     if isinstance(df1.columns,pd.MultiIndex): df1.columns=df1.columns.get_level_values(0)
-    if len(df1)<100: return None,None
+    if len(df1)<50: return None,None
     df5=df1.resample('5min').agg({'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'}).dropna()
     df15=df1.resample('15min').agg({'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'}).dropna()
     return add_ind(df5), add_ind(df15)
 
 def run_for(sym,name,gap):
     df5,df15=get_data(sym)
-    if df5 is None: return None
+    if df5 is None: 
+        send_tg(f"❌ {name} Data Fail")
+        return
     last5=df5.iloc[-1]; prev5=df5.iloc[-2]
     last15=df15.iloc[-1]
     rsi5=float(last5['RSI']); rsi15=float(last15['RSI'])
-    atr=float(last5['ATR']); sl=int(round(atr))
+    up_15 = last15['Close'] > last15['EMA20']
+    ce_break = last5['Close'] > prev5['High']*0.999
+    side = "CE" if up_15 else "PE"
+    strike=int(round(last5['Close']/gap)*gap)
+    sl=int(round(float(last5['ATR'])))
     if sl<20: sl=20
     if sl>40: sl=40
-    if rsi15>=73: return None
-
-    up_15 = last15['Close'] > last15['EMA20'] and last15['EMA20'] > last15['EMA50'] and last15['Close'] > last15['VWAP']
-    down_15 = last15['Close'] < last15['EMA20'] and last15['EMA20'] < last15['EMA50']
-    ce_break = last5['Close'] > prev5['High'] and last5['Close'] > last5['VWAP']
-    pe_break = last5['Close'] < prev5['Low'] and last5['Close'] < last5['VWAP']
-
-    side=None; pts=0
-    if up_15 and ce_break and 45<=rsi15<=65 and 50<=rsi5<=70:
-        side="CE"; pts=100 if float(last5['Volx'])>1.5 else 60
-    elif down_15 and pe_break and 35<=rsi15<=58 and 30<=rsi5<=55:
-        side="PE"; pts=60
-
-    if side is None: return None
-    strike=int(round(last5['Close']/gap)*gap)
     if can_send(name,f"{strike} {side}",side):
-        msg = f"""🚀 {name} {side} - 15M TREND + 5M BREAKOUT
+        msg=f"""🚀 {name} {side} - 15M TREND + 5M BREAKOUT
 📅 {datetime.now(IST).strftime('%d-%m %H:%M')} | {name}: {last5['Close']:.0f}
-📈 15M TREND: {'UP ✅' if up_15 else 'DOWN ✅'} RSI15:{rsi15:.0f} | 5M BREAKOUT RSI5:{rsi5:.0f} Vol:{float(last5['Volx']):.1f}x
+📈 15M TREND: {'UP ✅' if up_15 else 'DOWN ✅'} RSI15:{rsi15:.0f} | 5M RSI5:{rsi5:.0f} Vol:{float(last5['Volx']):.1f}x
+💥 BREAK: {last5['Close']:.0f} vs Prev {prev5['High']:.0f}
 🎯 STRIKE: {strike} {side} - CURRENT PE LO
-🛑 SL: -{sl} pts | 🎯 +{pts} pts"""
-        send_tg(msg); mark_sent(name,f"{strike} {side}",side); return True
-    return None
+🛑 SL: -{sl} pts | 🎯 +60 pts"""
+        send_tg(msg); mark_sent(name,f"{strike} {side}",side)
 
 if __name__=="__main__":
+    send_tg(f"🔴 BOT LIVE TEST - {datetime.now(IST).strftime('%d-%m %H:%M:%S')} - Start")
     run_for("^NSEI","NIFTY",50)
+    time.sleep(2)
     run_for("^BSESN","SENSEX",100)
