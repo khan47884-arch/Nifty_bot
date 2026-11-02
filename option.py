@@ -12,7 +12,7 @@ def can_send(index, strike, side):
         return True
     try:
         data = json.load(open(LAST_FILE))
-        if time.time() - data.get(key, 0) < 5400:
+        if time.time() - data.get(key, 0) < 300:
             return False
     except:
         pass
@@ -69,12 +69,16 @@ def send_tg(pattern, rsi5, strike, sl_pts, tag, vwap_ok, volx, oi_txt, index_nam
 def add_indicators(df):
     df['EMA20'] = df['Close'].ewm(span=20).mean()
     df['EMA50'] = df['Close'].ewm(span=50).mean()
-    df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
+    if df['Volume'].sum() == 0:
+        df['VWAP'] = df['Close'].ewm(span=20).mean()
+        df['Volx'] = 1.5
+    else:
+        df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
+        df['Volx'] = df['Volume'] / df['Volume'].rolling(20).mean()
     delta = df['Close'].diff()
     gain = delta.where(delta>0,0).rolling(14).mean()
     loss = -delta.where(delta<0,0).rolling(14).mean()
     df['RSI'] = 100 - (100/(1+gain/loss))
-    df['Volx'] = df['Volume'] / df['Volume'].rolling(20).mean()
     df['ATR'] = (df['High']-df['Low']).rolling(14).mean()
     return df
 
@@ -91,7 +95,7 @@ def run_for(symbol, name, gap):
         prev20_low = df.iloc[-21:-1]['Low'].min()
         prev20_high = df.iloc[-21:-1]['High'].max()
         if last['Low'] < prev20_low and last['Close'] > prev20_low + 5:
-            if last['Close'] > last['VWAP'] and last['EMA20'] > last['EMA50'] and last['RSI']>50 and last['RSI']<72 and last['Volx']>1.2:
+            if last['Close'] > last['VWAP'] and last['EMA20'] > last['EMA50'] and last['RSI']>50 and last['RSI']<72 and float(last['Volx'])>1.0:
                 if last['Close'] > prev['High']:
                     strike_price = int(round(last['Close']/gap)*gap)
                     strike_name = f"{strike_price} CE"
@@ -100,9 +104,9 @@ def run_for(symbol, name, gap):
                     if sl_pts < 18:
                         sl_pts = 18
                     if entry_ltp < 300 and can_send(name, strike_name, "CE"):
-                        send_tg("W PATTERN", round(last['RSI'],0), strike_name, sl_pts, "KOHINOOR", True, round(last['Volx'],1), "OI +12% Fresh", name, "CE", entry_ltp)
+                        send_tg("W PATTERN", round(last['RSI'],0), strike_name, sl_pts, "KOHINOOR", True, round(float(last['Volx']),1), "OI +12% Fresh", name, "CE", entry_ltp)
         if last['High'] > prev20_high and last['Close'] < prev20_high - 5:
-            if last['Close'] < last['VWAP'] and last['EMA20'] < last['EMA50'] and last['RSI']>28 and last['RSI']<50 and last['Volx']>1.2:
+            if last['Close'] < last['VWAP'] and last['EMA20'] < last['EMA50'] and last['RSI']>28 and last['RSI']<50 and float(last['Volx'])>1.0:
                 if last['Close'] < prev['Low']:
                     strike_price = int(round(last['Close']/gap)*gap)
                     strike_name = f"{strike_price} PE"
@@ -111,9 +115,9 @@ def run_for(symbol, name, gap):
                     if sl_pts < 18:
                         sl_pts = 18
                     if entry_ltp < 300 and can_send(name, strike_name, "PE"):
-                        send_tg("M PATTERN", round(last['RSI'],0), strike_name, sl_pts, "KOHINOOR", False, round(last['Volx'],1), "OI +10% Fresh", name, "PE", entry_ltp)
-    except Exception as e:
-        print(f"{name} Error: {e}")
+                        send_tg("M PATTERN", round(last['RSI'],0), strike_name, sl_pts, "KOHINOOR", False, round(float(last['Volx']),1), "OI +10% Fresh", name, "PE", entry_ltp)
+    except:
+        pass
 
 if __name__ == "__main__":
     run_for("^NSEI", "NIFTY", 50)
