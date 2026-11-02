@@ -8,32 +8,27 @@ IST = pytz.timezone('Asia/Kolkata')
 
 def can_send(index, strike, side):
     key = f"{index}_{strike}_{side}"
-    if not os.path.exists(LAST_FILE):
-        return True
+    if not os.path.exists(LAST_FILE): return True
     try:
         data = json.load(open(LAST_FILE))
-        if time.time() - data.get(key, 0) < 5400:
+        if time.time() - data.get(key, 0) < 1800:
             return False
-    except:
-        pass
+    except: pass
     return True
 
 def mark_sent(index, strike, side):
     key = f"{index}_{strike}_{side}"
     data = {}
     if os.path.exists(LAST_FILE):
-        try:
-            data = json.load(open(LAST_FILE))
-        except:
-            pass
+        try: data = json.load(open(LAST_FILE))
+        except: pass
     data[key] = time.time()
     json.dump(data, open(LAST_FILE, 'w'))
 
 def send_tg(pattern, rsi5, strike, sl_pts, tag, vwap_ok, volx, oi_txt, index_name, side, entry_ltp):
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     chat_id = os.getenv('TELEGRAM_CHAT_ID')
-    if not token or not chat_id:
-        return
+    if not token or not chat_id: return
     now = datetime.now(IST).strftime("%d-%m %H:%M")
     vwap_txt = "VWAP UP ✅" if vwap_ok else "VWAP DOWN ✅"
     if "KOHINOOR" in tag:
@@ -41,7 +36,7 @@ def send_tg(pattern, rsi5, strike, sl_pts, tag, vwap_ok, volx, oi_txt, index_nam
         note = f"🔥 {pattern} + LIQ SWEEP (5M) 2nd Candle ✅"
     elif "DIAMOND" in tag:
         stamp = "💎💎💎 DIAMOND BOMB"
-        note = f"👉 {pattern} + VOL CONFIRM"
+        note = f"👉 {pattern} + TREND CONFIRM"
     else:
         stamp = "🪙 GOLD"
         note = f"👉 {pattern} Safe"
@@ -61,69 +56,107 @@ def send_tg(pattern, rsi5, strike, sl_pts, tag, vwap_ok, volx, oi_txt, index_nam
 💡 T1 pe 50% book, SL Cost pe
 """
     try:
-        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
+        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg}, timeout=10)
         mark_sent(index_name, strike, side)
-    except:
-        pass
+    except: pass
 
 def add_indicators(df):
     df['EMA20'] = df['Close'].ewm(span=20).mean()
     df['EMA50'] = df['Close'].ewm(span=50).mean()
-    df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
-    # FIX FOR NIFTY/SENSEX - Volume 0 hota hai
     if df['Volume'].sum() == 0:
         df['VWAP'] = df['Close'].ewm(span=20).mean()
-        df['Volx'] = 1.5
+        df['Volx'] = 1.6
     else:
+        df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
         df['Volx'] = df['Volume'] / df['Volume'].rolling(20).mean()
+        df['Volx'] = df['Volx'].fillna(1.6)
     delta = df['Close'].diff()
     gain = delta.where(delta>0,0).rolling(14).mean()
     loss = -delta.where(delta<0,0).rolling(14).mean()
     df['RSI'] = 100 - (100/(1+gain/loss))
-    df['Volx'] = df['Volume'] / df['Volume'].rolling(20).mean()
-    if df['Volume'].sum() == 0:
-        df['Volx'] = 1.5
     df['ATR'] = (df['High']-df['Low']).rolling(14).mean()
-    return df
+    return df.bfill()
 
 def run_for(symbol, name, gap):
     try:
-        df = yf.download(symbol, period="5d", interval="5m", progress=False, auto_adjust=True)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        if len(df) < 30:
-            return
-        df = add_indicators(df)
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
-        prev20_low = df.iloc[-21:-1]['Low'].min()
-        prev20_high = df.iloc[-21:-1]['High'].max()
+        df15 = yf.download(symbol, period="5d", interval="15m", progress=False, auto_adjust=True)
+        if isinstance(df15.columns, pd.MultiIndex): df15.columns = df15.columns.get_level_values(0)
+        df15 = add_indicators(df15)
+        df5 = yf.download(symbol, period="5d", interval="5m", progress=False, auto_adjust=True)
+        if isinstance(df5.columns, pd.MultiIndex): df5.columns = df5.columns.get_level_values(0)
+        df5 = add_indicators(df5)
+        if len(df15) < 30 or len(df5) < 30: return
+        t15 = df15.iloc[-1]
+        last = df5.iloc[-1]
+        prev = df5.iloc[-2]
+        prev20_low = df5.iloc[-21:-1]['Low'].min()
+        prev20_high = df5.iloc[-21:-1]['High'].max()
+
         if last['Low'] < prev20_low and last['Close'] > prev20_low + 5:
-            if last['Close'] > last['VWAP'] and last['EMA20'] > last['EMA50'] and last['RSI']>50 and last['RSI']<72 and float(last['Volx'])>1.0:
+            if last['Close'] > last['VWAP'] and last['EMA20'] > last['EMA50'] and 50 < last['RSI'] < 72 and last['Volx'] > 1.0:
                 if last['Close'] > prev['High']:
                     strike_price = int(round(last['Close']/gap)*gap)
                     strike_name = f"{strike_price} CE"
                     entry_ltp = round(last['ATR']*2.5 + 80, 0)
-                    sl_pts = round(last['ATR']*1.2, 0)
-                    if sl_pts < 18:
-                        sl_pts = 18
-                    if entry_ltp < 300 and can_send(name, strike_name, "CE"):
+                    sl_pts = max(18, round(last['ATR']*1.2, 0))
+                    if entry_ltp < 350 and can_send(name, strike_name, "CE"):
                         send_tg("W PATTERN", round(last['RSI'],0), strike_name, sl_pts, "KOHINOOR", True, round(float(last['Volx']),1), "OI +12% Fresh", name, "CE", entry_ltp)
+                        return
+
         if last['High'] > prev20_high and last['Close'] < prev20_high - 5:
-            if last['Close'] < last['VWAP'] and last['EMA20'] < last['EMA50'] and last['RSI']>28 and last['RSI']<50 and float(last['Volx'])>1.0:
+            if last['Close'] < last['VWAP'] and last['EMA20'] < last['EMA50'] and 28 < last['RSI'] < 50 and last['Volx'] > 1.0:
                 if last['Close'] < prev['Low']:
                     strike_price = int(round(last['Close']/gap)*gap)
                     strike_name = f"{strike_price} PE"
                     entry_ltp = round(last['ATR']*2.5 + 80, 0)
-                    sl_pts = round(last['ATR']*1.2, 0)
-                    if sl_pts < 18:
-                        sl_pts = 18
-                    if entry_ltp < 300 and can_send(name, strike_name, "PE"):
+                    sl_pts = max(18, round(last['ATR']*1.2, 0))
+                    if entry_ltp < 350 and can_send(name, strike_name, "PE"):
                         send_tg("M PATTERN", round(last['RSI'],0), strike_name, sl_pts, "KOHINOOR", False, round(float(last['Volx']),1), "OI +10% Fresh", name, "PE", entry_ltp)
+                        return
+
+        if t15['EMA20'] > t15['EMA50'] and t15['Close'] > t15['VWAP']:
+            confirms = (1 if last['Close'] > prev['High'] else 0) + (1 if last['Close'] > last['VWAP'] else 0) + (1 if last['EMA20'] > last['EMA50'] else 0)
+            if confirms >= 2 and 50 < last['RSI'] < 70 and last['RSI'] > prev['RSI']:
+                strike_price = int(round(last['Close']/gap)*gap)
+                strike_name = f"{strike_price} CE"
+                entry_ltp = round(last['ATR']*2.2 + 60, 0)
+                sl_pts = max(15, round(last['ATR']*1.0, 0))
+                if entry_ltp < 350 and can_send(name, strike_name, "CE"):
+                    send_tg("UP TREND", round(last['RSI'],0), strike_name, sl_pts, "DIAMOND", True, round(float(last['Volx']),1), "TREND UP 2 Confirm", name, "CE", entry_ltp)
+
+        if t15['EMA20'] < t15['EMA50'] and t15['Close'] < t15['VWAP']:
+            confirms = (1 if last['Close'] < prev['Low'] else 0) + (1 if last['Close'] < last['VWAP'] else 0) + (1 if last['EMA20'] < last['EMA50'] else 0)
+            if confirms >= 2 and 20 < last['RSI'] < 48 and last['RSI'] < prev['RSI']:
+                strike_price = int(round(last['Close']/gap)*gap)
+                strike_name = f"{strike_price} PE"
+                entry_ltp = round(last['ATR']*2.2 + 60, 0)
+                sl_pts = max(15, round(last['ATR']*1.0, 0))
+                if entry_ltp < 350 and can_send(name, strike_name, "PE"):
+                    send_tg("DOWN TREND", round(last['RSI'],0), strike_name, sl_pts, "DIAMOND", False, round(float(last['Volx']),1), "TREND DOWN 2 Confirm", name, "PE", entry_ltp)
     except Exception as e:
         print(f"{name} Error: {e}")
 
 if __name__ == "__main__":
     run_for("^NSEI", "NIFTY", 50)
-    time.sleep(2)
     run_for("^BSESN", "SENSEX", 100)
+*2. http://option.yml ka pura code - isko copy karke .github/workflows/option.yml me paste karo:*
+name: option
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 3-10 * * 1-5'
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: pip install yfinance requests pandas pytz
+      - name: Run
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python option.py
