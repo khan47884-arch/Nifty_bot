@@ -139,24 +139,3 @@ def run_for(symbol, name, gap):
 if __name__ == "__main__":
     run_for("^NSEI", "NIFTY", 50)
     run_for("^BSESN", "SENSEX", 100)
-*2. http://option.yml ka pura code - isko copy karke .github/workflows/option.yml me paste karo:*
-name: option
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '*/5 3-10 * * 1-5'
-jobs:
-  bot:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install
-        run: pip install yfinance requests pandas pytz
-      - name: Run
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python option.py
