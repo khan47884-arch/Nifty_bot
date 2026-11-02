@@ -29,7 +29,7 @@ def check_symbol(name, yf_sym):
     df_15['EMA50'] = df_15['Close'].ewm(span=50).mean()
     df_15['RSI'] = get_rsi(df_15['Close'])
     last_15 = df_15.iloc[-1]
-    rsi_15 = last_15['RSI']
+    rsi_15 = float(last_15['RSI'])
     trend_15 = "UP" if last_15['EMA20'] > last_15['EMA50'] else "DOWN"
     
     df_5 = yf.download(yf_sym, period="2d", interval="5m", progress=False)
@@ -37,11 +37,10 @@ def check_symbol(name, yf_sym):
     df_5['VWAP'] = (df_5['Close'] * df_5['Volume']).cumsum() / df_5['Volume'].cumsum()
     last_5 = df_5.iloc[-1]
     
-    if 50 <= rsi_15 <= 65:
-        if trend_15 == "UP" and last_5['Close'] > last_5['VWAP']:
-            return f"🟢 {name} BUY | 15m RSI {rsi_15:.1f} (50-65) | 15m UP | 5m VWAP Entry"
-        elif trend_15 == "DOWN" and last_5['Close'] < last_5['VWAP']:
-            return f"🔴 {name} SELL | 15m RSI {rsi_15:.1f} (50-65) | 15m DOWN | 5m VWAP Entry"
+    if trend_15 == "UP" and 50 <= rsi_15 <= 65 and last_5['Close'] > last_5['VWAP']:
+        return f"🟢 {name} BUY | 15m RSI {rsi_15:.1f} (50-65) | UP | 5m Breakout"
+    if trend_15 == "DOWN" and 35 <= rsi_15 <= 50 and last_5['Close'] < last_5['VWAP']:
+        return f"🔴 {name} SELL | 15m RSI {rsi_15:.1f} (35-50) | DOWN | 5m Breakdown"
     
     return f"⚪ {name} - RSI {rsi_15:.1f} | Trend {trend_15} - Wait"
 
@@ -51,16 +50,11 @@ def send_tg(msg):
 
 ist = pytz.timezone('Asia/Kolkata')
 now = datetime.now(ist).strftime("%d %b %I:%M %p")
-final_msg = f"<b>MCX 15M-5M | {now}</b>\nRSI 50-65 Filter\n\n"
-has_signal = False
+final_msg = f"<b>MCX 15M-5M BOTH SIDE | {now}</b>\nBUY: 50-65 | SELL: 35-50\n\n"
 for name, sym in SYMBOLS.items():
     res = check_symbol(name, sym)
     if res:
         final_msg += res + "\n\n"
-        if "BUY" in res or "SELL" in res: has_signal = True
-
-if not has_signal:
-    final_msg += "No Entry - RSI 50-65 bahar."
 
 send_tg(final_msg)
 print(final_msg)
