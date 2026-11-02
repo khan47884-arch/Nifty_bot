@@ -10,8 +10,7 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 SYMBOLS = {
     "GOLDMINI": "GC=F",
-    "SILVERM": "SI=F",
-    "CRUDEOIL": "CL=F"
+    "SILVERM": "SI=F"
 }
 
 def get_rsi(series, period=14):
@@ -34,15 +33,17 @@ def check_symbol(name, yf_sym):
     
     df_5 = yf.download(yf_sym, period="2d", interval="5m", progress=False)
     df_5.columns = [c[0] if isinstance(c, tuple) else c for c in df_5.columns]
-    df_5['VWAP'] = (df_5['Close'] * df_5['Volume']).cumsum() / df_5['Volume'].cumsum()
     last_5 = df_5.iloc[-1]
+    prev_5 = df_5.iloc[-2]
+    breakout_up = last_5['Close'] > prev_5['High']
+    breakdown_down = last_5['Close'] < prev_5['Low']
     
-    if trend_15 == "UP" and 50 <= rsi_15 <= 65 and last_5['Close'] > last_5['VWAP']:
-        return f"🟢 {name} BUY | 15m RSI {rsi_15:.1f} (50-65) | UP | 5m Breakout"
-    if trend_15 == "DOWN" and 35 <= rsi_15 <= 50 and last_5['Close'] < last_5['VWAP']:
-        return f"🔴 {name} SELL | 15m RSI {rsi_15:.1f} (35-50) | DOWN | 5m Breakdown"
-    
-    return f"⚪ {name} - RSI {rsi_15:.1f} | Trend {trend_15} - Wait"
+    buy_max = 70 if name == "SILVERM" else 65
+    if trend_15 == "UP" and 50 <= rsi_15 <= buy_max and breakout_up:
+        return f"🟢 {name} BUY | 15m UP RSI {rsi_15:.1f} | 5m BO {last_5['Close']:.1f}"
+    if trend_15 == "DOWN" and 35 <= rsi_15 <= 50 and breakdown_down:
+        return f"🔴 {name} SELL | 15m DOWN RSI {rsi_15:.1f} | 5m BD {last_5['Close']:.1f}"
+    return None
 
 def send_tg(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -50,11 +51,15 @@ def send_tg(msg):
 
 ist = pytz.timezone('Asia/Kolkata')
 now = datetime.now(ist).strftime("%d %b %I:%M %p")
-final_msg = f"<b>MCX 15M-5M BOTH SIDE | {now}</b>\nBUY: 50-65 | SELL: 35-50\n\n"
+signals = []
 for name, sym in SYMBOLS.items():
     res = check_symbol(name, sym)
     if res:
-        final_msg += res + "\n\n"
+        signals.append(res)
 
-send_tg(final_msg)
-print(final_msg)
+if signals:
+    final_msg = f"<b>MCX ENTRY | {now}</b>\n\n" + "\n\n".join(signals)
+    send_tg(final_msg)
+    print(final_msg)
+else:
+    print(f"No Entry at {now}")
