@@ -1,0 +1,20 @@
+name: MCX Brahmastra 5 State
+on:
+  schedule:
+    - cron: '30 3 * * 1-5'
+    - cron: '0 14 * * 1-5'
+    - cron: '30 16 * * 1-5'
+  workflow_dispatch:
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: pip install yfinance pandas requests pytz
+      - run: python mcx.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
