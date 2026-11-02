@@ -2,140 +2,79 @@ import yfinance as yf, requests, os, json, time
 from datetime import datetime
 import pytz
 import pandas as pd
-
 LAST_FILE = "last_trade.json"
 IST = pytz.timezone('Asia/Kolkata')
-
-def can_send(index, strike, side):
-    key = f"{index}_{strike}_{side}"
+def can_send(i,s,sd):
+    k=f"{i}_{s}_{sd}"
     if not os.path.exists(LAST_FILE): return True
     try:
-        data = json.load(open(LAST_FILE))
-        if time.time() - data.get(key, 0) < 1800:
-            return False
+        d=json.load(open(LAST_FILE))
+        if time.time()-d.get(k,0)<1800: return False
     except: pass
     return True
-
-def mark_sent(index, strike, side):
-    key = f"{index}_{strike}_{side}"
-    data = {}
+def mark_sent(i,s,sd):
+    k=f"{i}_{s}_{sd}"
+    d={}
     if os.path.exists(LAST_FILE):
-        try: data = json.load(open(LAST_FILE))
+        try: d=json.load(open(LAST_FILE))
         except: pass
-    data[key] = time.time()
-    json.dump(data, open(LAST_FILE, 'w'))
-
-def send_tg(pattern, rsi5, strike, sl_pts, tag, vwap_ok, volx, oi_txt, index_name, side, entry_ltp):
-    token = os.getenv('TELEGRAM_BOT_TOKEN')
-    chat_id = os.getenv('TELEGRAM_CHAT_ID')
-    if not token or not chat_id: return
-    now = datetime.now(IST).strftime("%d-%m %H:%M")
-    vwap_txt = "VWAP UP ✅" if vwap_ok else "VWAP DOWN ✅"
-    if "KOHINOOR" in tag:
-        stamp = "👑👑👑 KOHINOOR - LIQUIDITY BOMB"
-        note = f"🔥 {pattern} + LIQ SWEEP (5M) 2nd Candle ✅"
-    elif "DIAMOND" in tag:
-        stamp = "💎💎💎 DIAMOND BOMB"
-        note = f"👉 {pattern} + TREND CONFIRM"
-    else:
-        stamp = "🪙 GOLD"
-        note = f"👉 {pattern} Safe"
-    entry = float(entry_ltp)
-    sl_p = float(sl_pts)
-    sl_price = round(entry - sl_p, 1)
-    t1_price = round(entry + (sl_p * 2), 1)
-    t2_price = round(entry + (sl_p * 3), 1)
-    t3_price = round(entry + (sl_p * 4), 1)
-    msg = f"""{stamp} {side}
-📅 {now} | {note}
-📊 {index_name} 15M Trend OK | {vwap_txt}
-📈 RSI5: {rsi5} | Vol: {volx}x | {oi_txt}
-🎯 STRIKE: {strike} {side} @ {entry} Rs
-🛑 SL: {sl_price} Rs (-{sl_p} pts)
-🎯 T1: {t1_price} Rs (+{sl_p*2}) | T2: {t2_price} Rs (+{sl_p*3}) | T3: {t3_price} Rs (+{sl_p*4})
-💡 T1 pe 50% book, SL Cost pe
-"""
-    try:
-        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg}, timeout=10)
-        mark_sent(index_name, strike, side)
+    d[k]=time.time()
+    json.dump(d,open(LAST_FILE,'w'))
+def send_tg(t):
+    tk=os.getenv('TELEGRAM_BOT_TOKEN')
+    cid=os.getenv('TELEGRAM_CHAT_ID')
+    try: requests.post(f"https://api.telegram.org/bot{tk}/sendMessage",data={"chat_id":cid,"text":t},timeout=15)
     except: pass
-
-def add_indicators(df):
-    df['EMA20'] = df['Close'].ewm(span=20).mean()
-    df['EMA50'] = df['Close'].ewm(span=50).mean()
-    if df['Volume'].sum() == 0:
-        df['VWAP'] = df['Close'].ewm(span=20).mean()
-        df['Volx'] = 1.6
-    else:
-        df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
-        df['Volx'] = df['Volume'] / df['Volume'].rolling(20).mean()
-        df['Volx'] = df['Volx'].fillna(1.6)
-    delta = df['Close'].diff()
-    gain = delta.where(delta>0,0).rolling(14).mean()
-    loss = -delta.where(delta<0,0).rolling(14).mean()
-    df['RSI'] = 100 - (100/(1+gain/loss))
-    df['ATR'] = (df['High']-df['Low']).rolling(14).mean()
+def add_ind(df):
+    df['EMA20']=df['Close'].ewm(span=20).mean()
+    df['EMA50']=df['Close'].ewm(span=50).mean()
+    df['VWAP']=(df['Close']*df['Volume']).cumsum()/df['Volume'].cumsum() if df['Volume'].sum()!=0 else df['Close'].ewm(span=20).mean()
+    df['Volx']=(df['Volume']/df['Volume'].rolling(20).mean()).fillna(1.5)
+    delta=df['Close'].diff()
+    gain=delta.where(delta>0,0).rolling(14).mean()
+    loss=-delta.where(delta<0,0).rolling(14).mean()
+    df['RSI']=100-(100/(1+gain/loss))
+    df['ATR']=(df['High']-df['Low']).rolling(14).mean()
     return df.bfill()
-
-def run_for(symbol, name, gap):
-    try:
-        df15 = yf.download(symbol, period="5d", interval="15m", progress=False, auto_adjust=True)
-        if isinstance(df15.columns, pd.MultiIndex): df15.columns = df15.columns.get_level_values(0)
-        df15 = add_indicators(df15)
-        df5 = yf.download(symbol, period="5d", interval="5m", progress=False, auto_adjust=True)
-        if isinstance(df5.columns, pd.MultiIndex): df5.columns = df5.columns.get_level_values(0)
-        df5 = add_indicators(df5)
-        if len(df15) < 30 or len(df5) < 30: return
-        t15 = df15.iloc[-1]
-        last = df5.iloc[-1]
-        prev = df5.iloc[-2]
-        prev20_low = df5.iloc[-21:-1]['Low'].min()
-        prev20_high = df5.iloc[-21:-1]['High'].max()
-
-        if last['Low'] < prev20_low and last['Close'] > prev20_low + 5:
-            if last['Close'] > last['VWAP'] and last['EMA20'] > last['EMA50'] and 50 < last['RSI'] < 72 and last['Volx'] > 1.0:
-                if last['Close'] > prev['High']:
-                    strike_price = int(round(last['Close']/gap)*gap)
-                    strike_name = f"{strike_price} CE"
-                    entry_ltp = round(last['ATR']*2.5 + 80, 0)
-                    sl_pts = max(18, round(last['ATR']*1.2, 0))
-                    if entry_ltp < 350 and can_send(name, strike_name, "CE"):
-                        send_tg("W PATTERN", round(last['RSI'],0), strike_name, sl_pts, "KOHINOOR", True, round(float(last['Volx']),1), "OI +12% Fresh", name, "CE", entry_ltp)
-                        return
-
-        if last['High'] > prev20_high and last['Close'] < prev20_high - 5:
-            if last['Close'] < last['VWAP'] and last['EMA20'] < last['EMA50'] and 28 < last['RSI'] < 50 and last['Volx'] > 1.0:
-                if last['Close'] < prev['Low']:
-                    strike_price = int(round(last['Close']/gap)*gap)
-                    strike_name = f"{strike_price} PE"
-                    entry_ltp = round(last['ATR']*2.5 + 80, 0)
-                    sl_pts = max(18, round(last['ATR']*1.2, 0))
-                    if entry_ltp < 350 and can_send(name, strike_name, "PE"):
-                        send_tg("M PATTERN", round(last['RSI'],0), strike_name, sl_pts, "KOHINOOR", False, round(float(last['Volx']),1), "OI +10% Fresh", name, "PE", entry_ltp)
-                        return
-
-        if t15['EMA20'] > t15['EMA50'] and t15['Close'] > t15['VWAP']:
-            confirms = (1 if last['Close'] > prev['High'] else 0) + (1 if last['Close'] > last['VWAP'] else 0) + (1 if last['EMA20'] > last['EMA50'] else 0)
-            if confirms >= 2 and 50 < last['RSI'] < 70 and last['RSI'] > prev['RSI']:
-                strike_price = int(round(last['Close']/gap)*gap)
-                strike_name = f"{strike_price} CE"
-                entry_ltp = round(last['ATR']*2.2 + 60, 0)
-                sl_pts = max(15, round(last['ATR']*1.0, 0))
-                if entry_ltp < 350 and can_send(name, strike_name, "CE"):
-                    send_tg("UP TREND", round(last['RSI'],0), strike_name, sl_pts, "DIAMOND", True, round(float(last['Volx']),1), "TREND UP 2 Confirm", name, "CE", entry_ltp)
-
-        if t15['EMA20'] < t15['EMA50'] and t15['Close'] < t15['VWAP']:
-            confirms = (1 if last['Close'] < prev['Low'] else 0) + (1 if last['Close'] < last['VWAP'] else 0) + (1 if last['EMA20'] < last['EMA50'] else 0)
-            if confirms >= 2 and 20 < last['RSI'] < 48 and last['RSI'] < prev['RSI']:
-                strike_price = int(round(last['Close']/gap)*gap)
-                strike_name = f"{strike_price} PE"
-                entry_ltp = round(last['ATR']*2.2 + 60, 0)
-                sl_pts = max(15, round(last['ATR']*1.0, 0))
-                if entry_ltp < 350 and can_send(name, strike_name, "PE"):
-                    send_tg("DOWN TREND", round(last['RSI'],0), strike_name, sl_pts, "DIAMOND", False, round(float(last['Volx']),1), "TREND DOWN 2 Confirm", name, "PE", entry_ltp)
-    except Exception as e:
-        print(f"{name} Error: {e}")
-
-if __name__ == "__main__":
-    run_for("^NSEI", "NIFTY", 50)
-    run_for("^BSESN", "SENSEX", 100)
+def get_data(sym):
+    df1=yf.download(sym,period="2d",interval="1m",progress=False,auto_adjust=True)
+    if isinstance(df1.columns,pd.MultiIndex): df1.columns=df1.columns.get_level_values(0)
+    if len(df1)<100: return None,None
+    df5=df1.resample('5min').agg({'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'}).dropna()
+    df15=df1.resample('15min').agg({'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'}).dropna()
+    return add_ind(df5),add_ind(df15)
+def run_for(sym,name,gap):
+    df5,df15=get_data(sym)
+    if df5 is None: return None
+    t15=df15.iloc[-1]; last=df5.iloc[-1]; prev=df5.iloc[-2]
+    pl=df5.iloc[-21:-1]['Low'].min(); ph=df5.iloc[-21:-1]['High'].max()
+    if last['Low']<pl and last['Close']>pl+5 and last['Close']>last['VWAP'] and last['EMA20']>last['EMA50'] and 50<last['RSI']<75 and last['Close']>prev['High']:
+        st=int(round(last['Close']/gap)*gap); en=round(last['ATR']*2.5+80,0); sl=max(18,round(last['ATR']*1.2,0))
+        if can_send(name,f"{st} CE","CE"):
+            send_tg(f"👑👑👑 KOHINOOR - LIQUIDITY BOMB CE\n📅 {datetime.now(IST).strftime('%d-%m %H:%M')} | W PATTERN + LIQ SWEEP 2nd Candle ✅\n📊 {name} 15M Trend OK | VWAP UP ✅\n📈 RSI5: {round(last['RSI'],0)} | Vol: {round(float(last['Volx']),1)}x\n🎯 STRIKE: {st} CE @ {en} Rs\n🛑 SL: {round(en-sl,1)} | T1: {round(en+sl*2,1)} | T2: {round(en+sl*3,1)} | T3: {round(en+sl*4,1)}")
+            mark_sent(name,f"{st} CE","CE"); return True
+    if last['High']>ph and last['Close']<ph-5 and last['Close']<last['VWAP'] and last['EMA20']<last['EMA50'] and 25<last['RSI']<50 and last['Close']<prev['Low']:
+        st=int(round(last['Close']/gap)*gap); en=round(last['ATR']*2.5+80,0); sl=max(18,round(last['ATR']*1.2,0))
+        if can_send(name,f"{st} PE","PE"):
+            send_tg(f"👑👑👑 KOHINOOR - LIQUIDITY BOMB PE\n📅 {datetime.now(IST).strftime('%d-%m %H:%M')} | M PATTERN\n📊 {name} | VWAP DOWN ✅\n📈 RSI5: {round(last['RSI'],0)} | Vol: {round(float(last['Volx']),1)}x\n🎯 {st} PE @ {en} Rs\n🛑 SL: {round(en-sl,1)} | T1: {round(en+sl*2,1)}")
+            mark_sent(name,f"{st} PE","PE"); return True
+    if t15['EMA20']>t15['EMA50'] and t15['Close']>t15['VWAP']:
+        c=(1 if last['Close']>prev['High'] else 0)+(1 if last['Close']>last['VWAP'] else 0)+(1 if last['EMA20']>last['EMA50'] else 0)
+        if c>=2 and 50<last['RSI']<70 and last['RSI']>prev['RSI']:
+            st=int(round(last['Close']/gap)*gap); en=round(last['ATR']*2.2+60,0); sl=max(15,round(last['ATR']*1.0,0))
+            if can_send(name,f"{st} CE","CE"):
+                send_tg(f"💎💎💎 DIAMOND BOMB CE\n📅 {datetime.now(IST).strftime('%d-%m %H:%M')} | UP TREND\n📊 {name} 15M OK | RSI: {round(last['RSI'],0)} | Volx: {round(float(last['Volx']),1)}\n🎯 {st} CE @ {en} | SL: {round(en-sl,1)} | T1: {round(en+sl*2,1)}")
+                mark_sent(name,f"{st} CE","CE"); return True
+    if t15['EMA20']<t15['EMA50'] and t15['Close']<t15['VWAP']:
+        c=(1 if last['Close']<prev['Low'] else 0)+(1 if last['Close']<last['VWAP'] else 0)+(1 if last['EMA20']<last['EMA50'] else 0)
+        if c>=2 and 20<last['RSI']<48 and last['RSI']<prev['RSI']:
+            st=int(round(last['Close']/gap)*gap); en=round(last['ATR']*2.2+60,0); sl=max(15,round(last['ATR']*1.0,0))
+            if can_send(name,f"{st} PE","PE"):
+                send_tg(f"💎💎💎 DIAMOND BOMB PE\n📅 {datetime.now(IST).strftime('%d-%m %H:%M')} | DOWN TREND\n📊 {name} | RSI: {round(last['RSI'],0)}\n🎯 {st} PE @ {en} | SL: {round(en-sl,1)}")
+                mark_sent(name,f"{st} PE","PE"); return True
+    return None
+if __name__=="__main__":
+    a=run_for("^NSEI","NIFTY",50)
+    b=run_for("^BSESN","SENSEX",100)
+    if not a and not b:
+        send_tg(f"✅ BOT LIVE - {datetime.now(IST).strftime('%d-%m %H:%M')}\nNIFTY/SENSEX check kiya, abhi setup nahi bana. Agle 5 min me check karega. Bot sahi chal raha hai Boss!")
