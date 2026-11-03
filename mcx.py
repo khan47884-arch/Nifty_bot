@@ -18,7 +18,7 @@ def get_rsi(series, period=5):
 
 def to_mcx_price(name, comex_price, usdinr):
     if name == "GOLDMINI": return (comex_price * usdinr / 31.1035) * 10
-    elif name == "SILVERM": return (comex_price * usdinr / 31.1035) * 1000 * 1.02
+    elif name == "SILVERM": return (comex_price * usdinr / 31.1035) * 1000 * 1.22
     else: return comex_price * usdinr
 
 def get_usdinr():
@@ -85,12 +85,16 @@ def check_symbol(name, yf_sym, usdinr):
     elif is_shooting: candle_name="Shooting Star"; signal="SELL"
     elif is_bear_eng: candle_name="Bearish Engulfing"; signal="SELL"
 
+    if name == "CRUDEOIL": pts_map = {"PLATINUM":100,"DIAMOND":60,"GOLD":40}
+    elif name == "GOLDMINI": pts_map = {"PLATINUM":200,"DIAMOND":120,"GOLD":80}
+    else: pts_map = {"PLATINUM":2000,"DIAMOND":1500,"GOLD":800}
+
     if signal and vol15 >= 2.0 and vol5 >= 1.5 and vwap_up_5:
-        quality="PLATINUM"; pts=2000; emoji="💎💎💎 PLATINUM BOMB"
+        quality="PLATINUM"; pts=pts_map["PLATINUM"]; emoji="💎💎💎 PLATINUM BOMB"
     elif signal and vol15 >= 1.5:
-        quality="DIAMOND"; pts=1500; emoji="💎💎 DIAMOND BOMB"
+        quality="DIAMOND"; pts=pts_map["DIAMOND"]; emoji="💎💎 DIAMOND BOMB"
     elif signal:
-        quality="GOLD"; pts=800; emoji="🪙 GOLD BOMB"
+        quality="GOLD"; pts=pts_map["GOLD"]; emoji="🪙 GOLD BOMB"
     else:
         return None
 
@@ -115,7 +119,18 @@ def check_symbol(name, yf_sym, usdinr):
 🎯 T1: {mcx_price+pts:.0f} (+{pts}) | T2: {mcx_price+pts+500:.0f} | T3: {mcx_price+pts+1000:.0f}
 💡 T1 pe 50% book"""
     else:
-        return f"""{emoji} SELL
+        if name == "CRUDEOIL":
+            return f"""{emoji} SELL
+📅 {dt} | 👉 {trend_txt}
+📊 {name} MCX 15M Resistance @ {mcx_res:.0f} | 5M Confirm: {confirm_txt}
+📈 RSI15:{rsi15:.1f} | Vol15:{vol15:.1f}x | Quality: {quality}
+🕯️ {candle_name} ✅ + Volume Spike ✅ (15M Candle se Entry, 5M se Confirm)
+🎯 ENTRY: {name} @ {mcx_price:.0f} Rs
+🛑 SL: {mcx_sl_high:.0f} Rs
+🎯 T1: {mcx_price-pts:.0f} (-{pts}) | T2: {mcx_price-pts-20:.0f} | T3: {mcx_price-pts-40:.0f}
+💡 T1 pe 50% book"""
+        else:
+            return f"""{emoji} SELL
 📅 {dt} | 👉 {trend_txt}
 📊 {name} MCX 15M Resistance @ {mcx_res:.0f} | 5M Confirm: {confirm_txt}
 📈 RSI15:{rsi15:.1f} | Vol15:{vol15:.1f}x | Quality: {quality}
