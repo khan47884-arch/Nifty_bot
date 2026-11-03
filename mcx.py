@@ -18,15 +18,17 @@ def get_rsi(series, period=5):
 
 def to_mcx_price(name, comex_price, usdinr):
     if name == "GOLDMINI": return (comex_price * usdinr / 31.1035) * 10
-    elif name == "SILVERM": return (comex_price * usdinr / 31.1035) * 1000
+    elif name == "SILVERM": return (comex_price * usdinr / 31.1035) * 1000 * 1.02
     else: return comex_price * usdinr
 
 def get_usdinr():
     try:
         df = yf.download("INR=X", period="1d", interval="1m", progress=False)
         df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-        return float(df['Close'].iloc[-1])
-    except: return 84.0
+        price = float(df['Close'].iloc[-1])
+        if price < 80 or price > 100: return 88.5
+        return price
+    except: return 88.5
 
 def check_symbol(name, yf_sym, usdinr):
     df15 = yf.download(yf_sym, period="5d", interval="15m", progress=False)
