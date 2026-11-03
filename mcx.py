@@ -3,24 +3,19 @@ import requests
 import os
 from datetime import datetime
 import pytz
-
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
 SYMBOLS = {"GOLDMINI": "GC=F", "SILVERM": "SI=F", "CRUDEOIL": "CL=F"}
-
 def get_rsi(series, period=5):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     rs = gain / loss
     return 100 - (100 / (1 + rs))
-
 def to_mcx_price(name, comex_price, usdinr):
     if name == "GOLDMINI": return (comex_price * usdinr / 31.1035) * 10
-    elif name == "SILVERM": return (comex_price * usdinr / 31.1035) * 1000 * 1.22
+    elif name == "SILVERM": return (comex_price * usdinr / 31.1035) * 1000 * 1.18
     else: return comex_price * usdinr
-
 def get_usdinr():
     try:
         df = yf.download("INR=X", period="1d", interval="1m", progress=False)
@@ -29,7 +24,6 @@ def get_usdinr():
         if price < 80 or price > 100: return 88.5
         return price
     except: return 88.5
-
 def check_symbol(name, yf_sym, usdinr):
     df15 = yf.download(yf_sym, period="5d", interval="15m", progress=False)
     if len(df15) < 50: return None
@@ -39,7 +33,6 @@ def check_symbol(name, yf_sym, usdinr):
     df15['EMA50'] = df15['Close'].ewm(span=50).mean()
     df15['VWAP'] = (df15['Close'] * df15['Volume']).cumsum() / df15['Volume'].cumsum()
     df15['VolAvg'] = df15['Volume'].rolling(20).mean()
-
     df5 = yf.download(yf_sym, period="2d", interval="5m", progress=False)
     if len(df5) < 30: return None
     df5.columns = [c[0] if isinstance(c, tuple) else c for c in df5.columns]
@@ -47,13 +40,10 @@ def check_symbol(name, yf_sym, usdinr):
     df5['EMA20'] = df5['Close'].ewm(span=20).mean()
     df5['VWAP'] = (df5['Close'] * df5['Volume']).cumsum() / df5['Volume'].cumsum()
     df5['VolAvg'] = df5['Volume'].rolling(20).mean()
-
     last15 = df15.iloc[-1]
     last5 = df5.iloc[-1]
-
     support = float(df15['Low'].tail(20).min())
     resistance = float(df15['High'].tail(20).max())
-    
     open_p = float(last15['Open']); close_p = float(last15['Close'])
     high_p = float(last15['High']); low_p = float(last15['Low'])
     body = abs(close_p - open_p)
@@ -61,43 +51,34 @@ def check_symbol(name, yf_sym, usdinr):
     lower_wick = min(close_p, open_p) - low_p
     range_p = high_p - low_p
     if range_p == 0: return None
-
     vol15 = float(last15['Volume'] / last15['VolAvg']) if last15['VolAvg'] > 0 else 1.0
     rsi15 = float(last15['RSI5'])
     rsi5 = float(last5['RSI5'])
     vol5 = float(last5['Volume'] / last5['VolAvg']) if last5['VolAvg'] > 0 else 1.0
-
     trend_up = last15['EMA20'] > last15['EMA50']
     trend_up_5 = last5['EMA20'] > df5['EMA20'].iloc[-2] if len(df5)>2 else True
     vwap_up_5 = float(last5['Close']) > float(last5['VWAP'])
-
     is_hammer = lower_wick > body*2 and lower_wick > upper_wick and close_p > open_p
     is_inv_hammer = upper_wick > body*2 and close_p > open_p
     is_bull_eng = close_p > open_p and df15.iloc[-2]['Close'] < df15.iloc[-2]['Open']
     is_shooting = upper_wick > body*2 and upper_wick > lower_wick and close_p < open_p
     is_bear_eng = close_p < open_p and df15.iloc[-2]['Close'] > df15.iloc[-2]['Open']
-
-    candle_name = ""
-    signal = None
+    candle_name = ""; signal = None
     if is_hammer: candle_name="Hammer"; signal="BUY"
     elif is_inv_hammer: candle_name="Inverted Hammer"; signal="BUY"
     elif is_bull_eng: candle_name="Bullish Engulfing"; signal="BUY"
     elif is_shooting: candle_name="Shooting Star"; signal="SELL"
     elif is_bear_eng: candle_name="Bearish Engulfing"; signal="SELL"
-
     if name == "CRUDEOIL": pts_map = {"PLATINUM":100,"DIAMOND":60,"GOLD":40}
     elif name == "GOLDMINI": pts_map = {"PLATINUM":200,"DIAMOND":120,"GOLD":80}
     else: pts_map = {"PLATINUM":2000,"DIAMOND":1500,"GOLD":800}
-
     if signal and vol15 >= 2.0 and vol5 >= 1.5 and vwap_up_5:
         quality="PLATINUM"; pts=pts_map["PLATINUM"]; emoji="💎💎💎 PLATINUM BOMB"
     elif signal and vol15 >= 1.5:
         quality="DIAMOND"; pts=pts_map["DIAMOND"]; emoji="💎💎 DIAMOND BOMB"
     elif signal:
         quality="GOLD"; pts=pts_map["GOLD"]; emoji="🪙 GOLD BOMB"
-    else:
-        return None
-
+    else: return None
     ist = pytz.timezone('Asia/Kolkata')
     dt = datetime.now(ist).strftime("%d-%m %H:%M")
     mcx_price = to_mcx_price(name, close_p, usdinr)
@@ -107,7 +88,6 @@ def check_symbol(name, yf_sym, usdinr):
     mcx_res = to_mcx_price(name, resistance, usdinr)
     trend_txt = "UP TREND + TREND CONFIRM" if trend_up else "DOWN TREND + TREND CONFIRM"
     confirm_txt = f"5M RSI:{rsi5:.1f} Vol:{vol5:.1f}x VWAP:{'UP' if vwap_up_5 else 'DOWN'} Trend:{'UP' if trend_up_5 else 'DOWN'}"
-
     if signal=="BUY":
         return f"""{emoji} BUY
 📅 {dt} | 👉 {trend_txt}
@@ -139,19 +119,15 @@ def check_symbol(name, yf_sym, usdinr):
 🛑 SL: {mcx_sl_high:.0f} Rs
 🎯 T1: {mcx_price-pts:.0f} (-{pts}) | T2: {mcx_price-pts-500:.0f} | T3: {mcx_price-pts-1000:.0f}
 💡 T1 pe 50% book"""
-
 def send_tg(msg):
     requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg})
-
 usdinr = get_usdinr()
 msgs = []
 for n, s in SYMBOLS.items():
     m = check_symbol(n, s, usdinr)
     if m: msgs.append(m)
-
 ist = pytz.timezone('Asia/Kolkata')
 now = datetime.now(ist).strftime("%d-%m %I:%M %p")
-
 if msgs:
     for m in msgs: send_tg(m)
 else:
