@@ -58,51 +58,43 @@ def run_for(symbol, name, step):
         tier = None
         side = None
         logic = ""
-        if price > recent_high and vol >= 1.8 and rsi < 72:
-            side = "CE"
-            trend_up = price > ema20 and ema20 > ema50 and price > ema200 and price > vwap
-            if trend_up and vol >= 2.2 and 40 < rsi < 65:
-                tier = "PLATINUM BOND"
-            elif vol >= 2.0 and 35 < rsi < 68:
-                tier = "DIAMOND BOND"
-            else:
-                tier = "GOLD BOND"
-            logic = f"BREAKOUT UP > {recent_high:.0f}"
-        elif price < recent_low and vol >= 1.8 and rsi > 28:
-            side = "PE"
-            trend_down = price < ema20 and ema20 < ema50 and price < ema200 and price < vwap
-            if trend_down and vol >= 2.2 and 35 < rsi < 60:
-                tier = "PLATINUM BOND"
-            elif vol >= 2.0 and 35 < rsi < 68:
-                tier = "DIAMOND BOND"
-            else:
-                tier = "GOLD BOND"
-            logic = f"BREAKOUT DOWN < {recent_low:.0f}"
-        else:
-            if price >= (range_high - buffer) and rsi >= 62 and vol >= 1.2:
-                side = "PE"
-                tier = "TOP TO BOTTOM"
-                logic = f"TOP RESIST {range_high:.0f} | RSI {rsi:.1f}"
-            elif price <= (range_low + buffer) and rsi <= 42 and vol >= 1.2:
+
+        # SIRF CONFIRM SIGNAL - HAR 5 MIN PE CHECK, MESSAGE SIRF CONFIRM PE
+        # 1. PLATINUM BREAKOUT ONLY
+        if price > recent_high and vol >= 2.2 and 40 < rsi < 65:
+            if price > ema20 and ema20 > ema50 and price > ema200 and price > vwap:
                 side = "CE"
-                tier = "BOTTOM TO TOP"
-                logic = f"BOTTOM SUPP {range_low:.0f} | RSI {rsi:.1f}"
+                tier = "PLATINUM BOND"
+                logic = f"BREAKOUT CONFIRM UP > {recent_high:.0f}"
+        elif price < recent_low and vol >= 2.2 and 35 < rsi < 60:
+            if price < ema20 and ema20 < ema50 and price < ema200 and price < vwap:
+                side = "PE"
+                tier = "PLATINUM BOND"
+                logic = f"BREAKOUT CONFIRM DOWN < {recent_low:.0f}"
+        # 2. TOP-BOTTOM CONFIRM
+        else:
+            if price >= (range_high - buffer) and rsi <= 48 and vol >= 1.5:
+                side = "PE"
+                tier = "TOP TO BOTTOM CONFIRM"
+                logic = f"TOP SE DOWN {range_high:.0f} -> RSI DOWN {rsi:.1f}"
+            elif price <= (range_low + buffer) and rsi >= 52 and vol >= 1.5:
+                side = "CE"
+                tier = "BOTTOM TO TOP CONFIRM"
+                logic = f"BOTTOM SE UP {range_low:.0f} -> RSI UP {rsi:.1f}"
             else:
                 return False
+
+        if tier is None:
+            return False
+
         strike = int(round(price / step) * step)
         now = datetime.now(IST).strftime('%d-%m %I:%M')
-        msg = f"💣 {name} OPTION BOND [{tier}]\n📅 {now} | RSI:{rsi:.1f} Vol:{vol:.1f}x\n📊 {logic}\n\n{name} {strike} {side} BUY\nPrice {price:.2f}\n🎯 {tier}\n"
-        if "TOP" in tier:
-            msg += f"SL {range_high+30:.0f}"
-        elif "BOTTOM" in tier:
-            msg += f"SL {range_low-30:.0f}"
-        else:
-            msg += f"SL {recent_low if side=='CE' else recent_high:.0f}"
+        msg = f"💣 {name} OPTION BOND [{tier}]\n📅 {now} | RSI:{rsi:.1f} Vol:{vol:.1f}x\n📊 {logic}\n\n{name} {strike} {side} BUY\nPrice {price:.2f}\n🎯 CONFIRM SIGNAL"
         return send_tg(msg)
     except:
         return False
 
 if __name__ == "__main__":
-    n = run_for("^NSEI", "NIFTY", 50)
+    run_for("^NSEI", "NIFTY", 50)
     time.sleep(2)
-    s = run_for("^BSESN", "SENSEX", 100)
+    run_for("^BSESN", "SENSEX", 100)
