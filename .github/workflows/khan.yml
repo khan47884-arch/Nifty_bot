@@ -2,7 +2,7 @@ name: Khan Sahab Strategy
 
 on:
   schedule:
-    - cron: '*/15 3:45-10 * * 1-5'
+    - cron: '*/15 3-10 * * 1-5'
   workflow_dispatch:
 
 jobs:
