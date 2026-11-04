@@ -18,8 +18,8 @@ def send_tg(msg):
     except:
         return False
 
-def get_rsi(series, p=14):
-    d = series.diff()
+def get_rsi(s, p=14):
+    d = s.diff()
     g = d.where(d > 0, 0).rolling(p).mean()
     l = -d.where(d < 0, 0).rolling(p).mean()
     rs = g / l
@@ -28,7 +28,7 @@ def get_rsi(series, p=14):
 def run_for(symbol, name, step):
     try:
         df = yf.download(symbol, period="10d", interval="5m", progress=False, threads=False, auto_adjust=True)
-        if df.empty or len(df) < 100:
+        if df.empty or len(df) < 80:
             return False
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
@@ -41,7 +41,9 @@ def run_for(symbol, name, step):
         df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
         last = df.iloc[-1]
         closes = df['Close'].tolist()
-        last_price = float(last['Close'])
+        highs = df['High'].tolist()
+        lows = df['Low'].tolist()
+        price = float(last['Close'])
         rsi = float(last['RSI'])
         ema20 = float(last['EMA20'])
         ema50 = float(last['EMA50'])
@@ -50,34 +52,53 @@ def run_for(symbol, name, step):
         vol = float(last['Volume'] / last['VolAvg']) if last['VolAvg'] > 0 else 0
         recent_high = max(closes[-21:-1])
         recent_low = min(closes[-21:-1])
+        range_high = max(highs[-21:-1])
+        range_low = min(lows[-21:-1])
+        buffer = (range_high - range_low) * 0.15
+        tier = None
         side = None
-        if last_price > recent_high:
+        logic = ""
+        if price > recent_high and vol >= 1.8 and rsi < 72:
             side = "CE"
-        elif last_price < recent_low:
+            trend_up = price > ema20 and ema20 > ema50 and price > ema200 and price > vwap
+            if trend_up and vol >= 2.2 and 40 < rsi < 65:
+                tier = "PLATINUM BOND"
+            elif vol >= 2.0 and 35 < rsi < 68:
+                tier = "DIAMOND BOND"
+            else:
+                tier = "GOLD BOND"
+            logic = f"BREAKOUT UP > {recent_high:.0f}"
+        elif price < recent_low and vol >= 1.8 and rsi > 28:
             side = "PE"
+            trend_down = price < ema20 and ema20 < ema50 and price < ema200 and price < vwap
+            if trend_down and vol >= 2.2 and 35 < rsi < 60:
+                tier = "PLATINUM BOND"
+            elif vol >= 2.0 and 35 < rsi < 68:
+                tier = "DIAMOND BOND"
+            else:
+                tier = "GOLD BOND"
+            logic = f"BREAKOUT DOWN < {recent_low:.0f}"
         else:
-            return False
-        if vol < 1.8:
-            return False
-        if side == "CE" and rsi > 72:
-            return False
-        if side == "PE" and rsi < 28:
-            return False
-        tier = "GOLD BOND"
-        if vol >= 2.0 and 35 < rsi < 68:
-            tier = "DIAMOND BOND"
-        trend_up = last_price > ema20 and ema20 > ema50 and last_price > ema200 and last_price > vwap
-        trend_down = last_price < ema20 and ema20 < ema50 and last_price < ema200 and last_price < vwap
-        if side == "CE" and trend_up and vol >= 2.2 and 40 < rsi < 65:
-            tier = "PLATINUM BOND"
-        if side == "PE" and trend_down and vol >= 2.2 and 35 < rsi < 60:
-            tier = "PLATINUM BOND"
-        strike = int(round(last_price / step) * step)
-        now_str = datetime.now(IST).strftime('%d-%m %I:%M')
-        msg = f"💣 {name} OPTION BOND [{tier}]\n📅 {now_str} | RSI:{rsi:.1f} Vol:{vol:.1f}x\n\n{name} {strike} {side} BUY\nPrice {last_price:.2f}\n5M BREAKOUT {side} SIDE\nSL {recent_low if side=='CE' else recent_high:.2f}\n🎯 T1 pe 50% book"
-        if send_tg(msg):
-            return True
-        return False
+            if price >= (range_high - buffer) and rsi >= 62 and vol >= 1.2:
+                side = "PE"
+                tier = "TOP TO BOTTOM"
+                logic = f"TOP RESIST {range_high:.0f} | RSI {rsi:.1f}"
+            elif price <= (range_low + buffer) and rsi <= 42 and vol >= 1.2:
+                side = "CE"
+                tier = "BOTTOM TO TOP"
+                logic = f"BOTTOM SUPP {range_low:.0f} | RSI {rsi:.1f}"
+            else:
+                return False
+        strike = int(round(price / step) * step)
+        now = datetime.now(IST).strftime('%d-%m %I:%M')
+        msg = f"💣 {name} OPTION BOND [{tier}]\n📅 {now} | RSI:{rsi:.1f} Vol:{vol:.1f}x\n📊 {logic}\n\n{name} {strike} {side} BUY\nPrice {price:.2f}\n🎯 {tier}\n"
+        if "TOP" in tier:
+            msg += f"SL {range_high+30:.0f}"
+        elif "BOTTOM" in tier:
+            msg += f"SL {range_low-30:.0f}"
+        else:
+            msg += f"SL {recent_low if side=='CE' else recent_high:.0f}"
+        return send_tg(msg)
     except:
         return False
 
