@@ -1,100 +1,134 @@
 import yfinance as yf
-import requests
-import os
-import time
+import requests, os, time
 from datetime import datetime
 import pytz
-import pandas as pd
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 IST = pytz.timezone('Asia/Kolkata')
+BOT = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT = os.getenv("TELEGRAM_CHAT_ID")
 
-def send_tg(msg):
+def tg(m):
     try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        r = requests.post(url, data={"chat_id": CHAT_ID, "text": msg}, timeout=15)
-        return r.status_code == 200
-    except:
-        return False
+        requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=20)
+    except: pass
 
-def get_rsi(s, p=14):
-    d = s.diff()
-    g = d.where(d > 0, 0).rolling(p).mean()
-    l = -d.where(d < 0, 0).rolling(p).mean()
-    rs = g / l
+SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
+already_sent = set()
+box_data = {}
+system_built = False
+exit_sent = False
+
+def calc_rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0).rolling(window=period).mean()
+    loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
+    rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-def run_for(symbol, name, step):
-    try:
-        df = yf.download(symbol, period="10d", interval="5m", progress=False, threads=False, auto_adjust=True)
-        if df.empty or len(df) < 80:
-            return False
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        df = df.dropna()
-        df['RSI'] = get_rsi(df['Close'])
-        df['EMA20'] = df['Close'].ewm(span=20).mean()
-        df['EMA50'] = df['Close'].ewm(span=50).mean()
-        df['EMA200'] = df['Close'].ewm(span=200).mean()
-        df['VolAvg'] = df['Volume'].rolling(20).mean()
-        df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
-        last = df.iloc[-1]
-        closes = df['Close'].tolist()
-        highs = df['High'].tolist()
-        lows = df['Low'].tolist()
-        price = float(last['Close'])
-        rsi = float(last['RSI'])
-        ema20 = float(last['EMA20'])
-        ema50 = float(last['EMA50'])
-        ema200 = float(last['EMA200'])
-        vwap = float(last['VWAP'])
-        vol = float(last['Volume'] / last['VolAvg']) if last['VolAvg'] > 0 else 0
-        recent_high = max(closes[-21:-1])
-        recent_low = min(closes[-21:-1])
-        range_high = max(highs[-21:-1])
-        range_low = min(lows[-21:-1])
-        buffer = (range_high - range_low) * 0.15
-        tier = None
-        side = None
-        logic = ""
+def build_box():
+    global box_data
+    box_data = {}
+    msg = "Option Bond 💥\nNIFTY + SENSEX BOX READY\n"
+    for name, sym in SYMBOLS.items():
+        try:
+            df15 = yf.download(sym, period="1d", interval="15m", progress=False, auto_adjust=True)
+            df15.columns = [c[0] if isinstance(c, tuple) else c for c in df15.columns]
+            box_high = float(df15["High"].iloc[0:3].max())
+            box_low = float(df15["Low"].iloc[0:3].min())
+            box_data[name] = (box_high, box_low)
+            msg += f"{name} BOX: {box_low:.0f} - {box_high:.0f}\n"
+        except: pass
+    tg(msg)
 
-        # SIRF CONFIRM SIGNAL - HAR 5 MIN PE CHECK, MESSAGE SIRF CONFIRM PE
-        # 1. PLATINUM BREAKOUT ONLY
-        if price > recent_high and vol >= 2.2 and 40 < rsi < 65:
-            if price > ema20 and ema20 > ema50 and price > ema200 and price > vwap:
-                side = "CE"
-                tier = "PLATINUM BOND"
-                logic = f"BREAKOUT CONFIRM UP > {recent_high:.0f}"
-        elif price < recent_low and vol >= 2.2 and 35 < rsi < 60:
-            if price < ema20 and ema20 < ema50 and price < ema200 and price < vwap:
-                side = "PE"
-                tier = "PLATINUM BOND"
-                logic = f"BREAKOUT CONFIRM DOWN < {recent_low:.0f}"
-        # 2. TOP-BOTTOM CONFIRM
+def get_strike(name, entry):
+    if name == "NIFTY": return int(round(entry / 50) * 50)
+    else: return int(round(entry / 100) * 100)
+
+def get_level(side, rsi):
+    if side == "Bullish":
+        if rsi >= 60:
+            return "Platinum", "Target -100+ Platinum ✅"
         else:
-            if price >= (range_high - buffer) and rsi <= 48 and vol >= 1.5:
-                side = "PE"
-                tier = "TOP TO BOTTOM CONFIRM"
-                logic = f"TOP SE DOWN {range_high:.0f} -> RSI DOWN {rsi:.1f}"
-            elif price <= (range_low + buffer) and rsi >= 52 and vol >= 1.5:
-                side = "CE"
-                tier = "BOTTOM TO TOP CONFIRM"
-                logic = f"BOTTOM SE UP {range_low:.0f} -> RSI UP {rsi:.1f}"
-            else:
-                return False
+            return "Diamond", "Target -60+ Diamond ✅"
+    else:
+        if rsi <= 40:
+            return "Platinum", "Target -100+ Platinum ✅"
+        else:
+            return "Diamond", "Target -60+ Diamond ✅"
 
-        if tier is None:
-            return False
+def detect_pattern(df):
+    if len(df) < 3: return None, None
+    c1 = df.iloc[-3]; c2 = df.iloc[-2]; c3 = df.iloc[-1]
+    def vals(c): return float(c["Open"]), float(c["Close"]), float(c["High"]), float(c["Low"])
+    o1, cl1, h1, l1 = vals(c1); o2, cl2, h2, l2 = vals(c2); o3, cl3, h3, l3 = vals(c3)
+    body3 = abs(cl3 - o3); range3 = h3 - l3
+    if range3 == 0: return None, None
+    upper_wick3 = h3 - max(o3, cl3); lower_wick3 = min(o3, cl3) - l3
+    is_green3 = cl3 > o3; is_red3 = cl3 < o3
+    if is_green3 and lower_wick3 > body3*2 and upper_wick3 < body3*0.5: return "HAMMER", "Bullish"
+    if is_green3 and upper_wick3 > body3*2 and lower_wick3 < body3*0.5: return "INVERTED HAMMER", "Bullish"
+    if body3 < range3*0.1 and lower_wick3 > range3*0.7: return "DRAGONFLY DOJI", "Bullish"
+    if cl1 < o1 and abs(cl2-o2) < abs(cl1-o1)*0.4 and is_green3 and cl3 > (o1+cl1)/2: return "MORNING STAR", "Bullish"
+    if cl1 > o1 and cl2 > o2 and is_green3 and cl2 > cl1 and cl3 > cl2: return "THREE WHITE SOLDIERS", "Bullish"
+    if is_red3 and upper_wick3 > body3*2 and lower_wick3 < body3*0.5: return "SHOOTING STAR", "Bearish"
+    if is_red3 and lower_wick3 > body3*2 and upper_wick3 < body3*0.5: return "HANGING MAN", "Bearish"
+    if body3 < range3*0.1 and upper_wick3 > range3*0.7: return "GRAVESTONE DOJI", "Bearish"
+    if cl1 > o1 and abs(cl2-o2) < abs(cl1-o1)*0.4 and is_red3 and cl3 < (o1+cl1)/2: return "EVENING STAR", "Bearish"
+    if cl1 < o1 and cl2 < o2 and is_red3 and cl2 < cl1 and cl3 < cl2: return "THREE BLACK CROWS", "Bearish"
+    return None, None
 
-        strike = int(round(price / step) * step)
-        now = datetime.now(IST).strftime('%d-%m %I:%M')
-        msg = f"💣 {name} OPTION BOND [{tier}]\n📅 {now} | RSI:{rsi:.1f} Vol:{vol:.1f}x\n📊 {logic}\n\n{name} {strike} {side} BUY\nPrice {price:.2f}\n🎯 CONFIRM SIGNAL"
-        return send_tg(msg)
-    except:
-        return False
+def check_one(name, sym):
+    if name not in box_data: return
+    try:
+        box_high, box_low = box_data[name]
+        df15 = yf.download(sym, period="1d", interval="15m", progress=False, auto_adjust=True)
+        df5 = yf.download(sym, period="1d", interval="5m", progress=False, auto_adjust=True)
+        if len(df15) < 5 or len(df5) < 5: return
+        for df in [df15, df5]:
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        df15["VWAP"] = (df15["High"]+df15["Low"]+df15["Close"]).div(3).rolling(10).mean()
+        vwap = float(df15["VWAP"].iloc[-1])
+        df15["RSI"] = calc_rsi(df15["Close"])
+        rsi = float(df15["RSI"].iloc[-1])
+        last_15 = df15.iloc[-1]
+        last_close = float(last_15["Close"]); last_low = float(last_15["Low"]); last_high = float(last_15["High"])
+        c_entry = df5.iloc[-1]
+        entry_close = float(c_entry["Close"])
+        # 15 MIN TIMEFRAME KO TOUCH KARKE POLICE CANDLE - 15 MIN PE PATTERN CHECK
+        pattern, side = detect_pattern(df15)
+        if not pattern: return
+        key = name + "_" + str(df15.index[-1]) + "_" + pattern
+        if key in already_sent: return
+        touched_support = last_low <= box_low * 1.001
+        touched_res = last_high >= box_high * 0.999
+        touched_15 = touched_support or touched_res or last_close > box_high or last_close < box_low
+        if not touched_15: return
+        if side == "Bullish" and last_close > vwap:
+            strike = get_strike(name, entry_close)
+            level, target_line = get_level(side, rsi)
+            msg = f"Option Bond 💥 {level}\n{name}\n{pattern} - Bullish ✅\nRSI+{rsi:.0f}\nVwap+✅\nEntry {strike}-CE\nVerify Buy Khan Sahab\n{target_line}"
+            tg(msg); already_sent.add(key); return
+        if side == "Bearish" and last_close < vwap:
+            strike = get_strike(name, entry_close)
+            level, target_line = get_level(side, rsi)
+            msg = f"Option Bond 💥 {level}\n{name}\n{pattern} - Bearish ✅\nRSI+{rsi:.0f}\nVwap+✅\nEntry {strike}-PE\nVerify Buy Khan Sahab\n{target_line}"
+            tg(msg); already_sent.add(key); return
+    except Exception as e:
+        print(name, "check fail", e)
 
-if __name__ == "__main__":
-    run_for("^NSEI", "NIFTY", 50)
-    time.sleep(2)
-    run_for("^BSESN", "SENSEX", 100)
+tg("Option Bond 💥\nBOT ON Khan Sahab")
+print("BOT STARTED", datetime.now(IST))
+start_time = time.time()
+while True:
+    now = datetime.now(IST)
+    if now.weekday() < 5 and ((now.hour == 10 and now.minute >= 0) or now.hour > 10) and not system_built:
+        build_box(); system_built = True
+    is_market = now.weekday() < 5 and ((now.hour == 10 and now.minute >= 0) or (now.hour > 10 and now.hour < 15) or (now.hour == 15 and now.minute <= 15))
+    if is_market and system_built:
+        for name, sym in SYMBOLS.items():
+            check_one(name, sym); time.sleep(1)
+    if now.weekday() < 5 and now.hour == 15 and now.minute >= 15 and not exit_sent:
+        tg("Option Bond 💥\n3:15 HO GAYA Khan Sahab\nTrade Kaat Do")
+        exit_sent = True; break
+    if time.time() - start_time > 20000: break
+    time.sleep(60)
