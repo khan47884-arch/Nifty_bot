@@ -2,60 +2,48 @@ import yfinance as yf
 import requests, os, time
 from datetime import datetime
 import pytz
-
 IST = pytz.timezone('Asia/Kolkata')
 BOT = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT = os.getenv("TELEGRAM_CHAT_ID")
-
 def tg(m):
-    try:
-        requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=20)
+    try: requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=20)
     except: pass
-
 SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
 already_sent = set()
 box_data = {}
 system_built = False
 exit_sent = False
-
 def calc_rsi(series, period=14):
     delta = series.diff()
     gain = delta.where(delta > 0, 0).rolling(window=period).mean()
     loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
     rs = gain / loss
     return 100 - (100 / (1 + rs))
-
 def build_box():
     global box_data
     box_data = {}
-    msg = "Option Bond 💥\nNIFTY + SENSEX BOX READY\n"
+    msg = "✨ Option Bond 💥 BOX READY ✨\n━━━━━━━━━━━━━━━━\n⏰ 9:15 - 9:30 BOX VERIFIED ✅\n"
     for name, sym in SYMBOLS.items():
         try:
             df15 = yf.download(sym, period="1d", interval="15m", progress=False, auto_adjust=True)
             df15.columns = [c[0] if isinstance(c, tuple) else c for c in df15.columns]
-            box_high = float(df15["High"].iloc[0:3].max())
-            box_low = float(df15["Low"].iloc[0:3].min())
+            box_high = float(df15["High"].iloc[0])
+            box_low = float(df15["Low"].iloc[0])
             box_data[name] = (box_high, box_low)
-            msg += f"{name} BOX: {box_low:.0f} - {box_high:.0f}\n"
+            msg += f"📊 {name} BOX: {box_low:.0f} - {box_high:.0f}\n"
         except: pass
+    msg += "━━━━━━━━━━━━━━━━"
     tg(msg)
-
 def get_strike(name, entry):
     if name == "NIFTY": return int(round(entry / 50) * 50)
     else: return int(round(entry / 100) * 100)
-
 def get_level(side, rsi):
     if side == "Bullish":
-        if rsi >= 60:
-            return "Platinum", "Target -100+ Platinum ✅"
-        else:
-            return "Diamond", "Target -60+ Diamond ✅"
+        if rsi >= 60: return "👑👑 Platinum 👑👑", "🎯 Target -100+ Platinum ✅"
+        else: return "💎💎 Diamond 💎💎", "🎯 Target -60+ Diamond ✅"
     else:
-        if rsi <= 40:
-            return "Platinum", "Target -100+ Platinum ✅"
-        else:
-            return "Diamond", "Target -60+ Diamond ✅"
-
+        if rsi <= 40: return "👑👑 Platinum 👑👑", "🎯 Target -100+ Platinum ✅"
+        else: return "💎💎 Diamond 💎💎", "🎯 Target -60+ Diamond ✅"
 def detect_pattern(df):
     if len(df) < 3: return None, None
     c1 = df.iloc[-3]; c2 = df.iloc[-2]; c3 = df.iloc[-1]
@@ -76,7 +64,6 @@ def detect_pattern(df):
     if cl1 > o1 and abs(cl2-o2) < abs(cl1-o1)*0.4 and is_red3 and cl3 < (o1+cl1)/2: return "EVENING STAR", "Bearish"
     if cl1 < o1 and cl2 < o2 and is_red3 and cl2 < cl1 and cl3 < cl2: return "THREE BLACK CROWS", "Bearish"
     return None, None
-
 def check_one(name, sym):
     if name not in box_data: return
     try:
@@ -84,8 +71,7 @@ def check_one(name, sym):
         df15 = yf.download(sym, period="1d", interval="15m", progress=False, auto_adjust=True)
         df5 = yf.download(sym, period="1d", interval="5m", progress=False, auto_adjust=True)
         if len(df15) < 5 or len(df5) < 5: return
-        for df in [df15, df5]:
-            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        for df in [df15, df5]: df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
         df15["VWAP"] = (df15["High"]+df15["Low"]+df15["Close"]).div(3).rolling(10).mean()
         vwap = float(df15["VWAP"].iloc[-1])
         df15["RSI"] = calc_rsi(df15["Close"])
@@ -94,7 +80,6 @@ def check_one(name, sym):
         last_close = float(last_15["Close"]); last_low = float(last_15["Low"]); last_high = float(last_15["High"])
         c_entry = df5.iloc[-1]
         entry_close = float(c_entry["Close"])
-        # 15 MIN TIMEFRAME KO TOUCH KARKE POLICE CANDLE - 15 MIN PE PATTERN CHECK
         pattern, side = detect_pattern(df15)
         if not pattern: return
         key = name + "_" + str(df15.index[-1]) + "_" + pattern
@@ -106,29 +91,27 @@ def check_one(name, sym):
         if side == "Bullish" and last_close > vwap:
             strike = get_strike(name, entry_close)
             level, target_line = get_level(side, rsi)
-            msg = f"Option Bond 💥 {level}\n{name}\n{pattern} - Bullish ✅\nRSI+{rsi:.0f}\nVwap+✅\nEntry {strike}-CE\nVerify Buy Khan Sahab\n{target_line}"
+            msg = f"{level}\n✨ Option Bond 💥 ✨\n━━━━━━━━━━━━━━━━\n📊 {name}\n🕯️ {pattern} - Bullish ✅\n📈 RSI +{rsi:.0f}\n📍 VWAP + ✅\n━━━━━━━━━━━━━━━━\n💰 Entry {strike}-CE\n✅ Verify Buy Khan Sahab\n{target_line}\n━━━━━━━━━━━━━━━━"
             tg(msg); already_sent.add(key); return
         if side == "Bearish" and last_close < vwap:
             strike = get_strike(name, entry_close)
             level, target_line = get_level(side, rsi)
-            msg = f"Option Bond 💥 {level}\n{name}\n{pattern} - Bearish ✅\nRSI+{rsi:.0f}\nVwap+✅\nEntry {strike}-PE\nVerify Buy Khan Sahab\n{target_line}"
+            msg = f"{level}\n✨ Option Bond 💥 ✨\n━━━━━━━━━━━━━━━━\n📊 {name}\n🕯️ {pattern} - Bearish ✅\n📈 RSI +{rsi:.0f}\n📍 VWAP + ✅\n━━━━━━━━━━━━━━━━\n💰 Entry {strike}-PE\n✅ Verify Buy Khan Sahab\n{target_line}\n━━━━━━━━━━━━━━━━"
             tg(msg); already_sent.add(key); return
-    except Exception as e:
-        print(name, "check fail", e)
-
-tg("Option Bond 💥\nBOT ON Khan Sahab")
+    except Exception as e: print(name, "check fail", e)
+tg("✨ Option Bond 💥 BOT ON ✨\n━━━━━━━━━━━━━━━━\n✅ Khan Sahab BOT Ready Hai")
 print("BOT STARTED", datetime.now(IST))
 start_time = time.time()
 while True:
     now = datetime.now(IST)
-    if now.weekday() < 5 and ((now.hour == 10 and now.minute >= 0) or now.hour > 10) and not system_built:
+    if now.weekday() < 5 and now.hour == 9 and 30 <= now.minute <= 35 and not system_built:
         build_box(); system_built = True
-    is_market = now.weekday() < 5 and ((now.hour == 10 and now.minute >= 0) or (now.hour > 10 and now.hour < 15) or (now.hour == 15 and now.minute <= 15))
+    is_market = now.weekday() < 5 and ((now.hour == 9 and now.minute >= 30) or (now.hour > 9 and now.hour < 15) or (now.hour == 15 and now.minute <= 15))
     if is_market and system_built:
         for name, sym in SYMBOLS.items():
             check_one(name, sym); time.sleep(1)
     if now.weekday() < 5 and now.hour == 15 and now.minute >= 15 and not exit_sent:
-        tg("Option Bond 💥\n3:15 HO GAYA Khan Sahab\nTrade Kaat Do")
+        tg("✨ Option Bond 💥 EXIT ✨\n━━━━━━━━━━━━━━━━\n⏰ 3:15 HO GAYA Khan Sahab\n❌ Trade Kaat Do\n━━━━━━━━━━━━━━━━")
         exit_sent = True; break
     if time.time() - start_time > 20000: break
     time.sleep(60)
