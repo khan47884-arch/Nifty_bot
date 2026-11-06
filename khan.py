@@ -1,91 +1,146 @@
-//@version=6
-indicator("KHAN SAHAB PLATINUM + DIAMOND", overlay=true)
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import requests
+import os
+from datetime import datetime, time
 
-// ===== INPUTS =====
-boxStart = input.time(timestamp("09:15"), "Box Start")
-boxEnd = input.time(timestamp("09:30"), "Box End")
-gapLimit = input.float(2.0, "Gap % Limit")
-rsiLen = input.int(14, "RSI Length")
-emaLen = input.int(20, "EMA Length")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-// ===== PREV DAY CLOSE & GAP =====
-prevClose = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
-dayOpen = request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_on)
-gapPct = (dayOpen - prevClose) / prevClose * 100
+SYMBOLS = [
+    "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
+    "KOTAKBANK.NS","SBIN.NS","AXISBANK.NS","LT.NS","TITAN.NS",
+    "ITC.NS","HINDUNILVR.NS","BAJFINANCE.NS","MARUTI.NS","TATAMOTORS.NS",
+    "TATASTEEL.NS","ONGC.NS","POWERGRID.NS","NTPC.NS","SUNPHARMA.NS",
+    "ADANIENT.NS","WIPRO.NS","HCLTECH.NS","TECHM.NS","ULTRACEMCO.NS"
+]
 
-// ===== BOX 9:15-9:30 =====
-var float boxHigh = na
-var float boxLow = na
-var bool boxDone = false
-t = time
-inBox = t >= boxStart and t < boxEnd
+def send_telegram(msg):
+    if not BOT_TOKEN or not CHAT_ID:
+        print(msg)
+        return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    try:
+        requests.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
+    except Exception as e:
+        print("Telegram Error:", e)
 
-if inBox and not boxDone
-    boxHigh := na(boxHigh) ? high : math.max(boxHigh, high)
-    boxLow := na(boxLow) ? low : math.min(boxLow, low)
-if t >= boxEnd and not boxDone
-    boxDone := true
+def calc_rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0).rolling(period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
+    rs = gain / (loss + 1e-9)
+    return 100 - (100 / (1 + rs))
 
-plot(boxDone ? boxHigh : na, "BOX HIGH", color.orange, 2)
-plot(boxDone ? boxLow : na, "BOX LOW", color.orange, 2)
+def calc_vwap(df):
+    tp = (df['High'] + df['Low'] + df['Close']) / 3
+    return (tp * df['Volume']).cumsum() / (df['Volume'].cumsum() + 1e-9)
 
-// ===== INDICATORS =====
-ema20 = ta.ema(close, emaLen)
-vwapVal = ta.vwap(close)
-rsiVal = ta.rsi(close, rsiLen)
-volAvg = ta.sma(volume, 20)
+def check_stock(symbol):
+    try:
+        df = yf.download(symbol, period="2d", interval="5m", progress=False, auto_adjust=False)
+        if df.empty or len(df) < 30:
+            return
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df = df.reset_index()
+        df['Datetime'] = pd.to_datetime(df['Datetime'])
+        try:
+            df['Datetime'] = df['Datetime'].dt.tz_convert('Asia/Kolkata').dt.tz_localize(None)
+        except:
+            pass
+        today = df['Datetime'].dt.date.max()
+        today_df = df[df['Datetime'].dt.date == today].copy()
+        prev_df = df[df['Datetime'].dt.date < today]
+        if today_df.empty or prev_df.empty:
+            return
+        prev_close = float(prev_df['Close'].iloc[-1])
+        day_open = float(today_df['Open'].iloc[0])
+        gap = (day_open - prev_close) / prev_close * 100
+        box_df = today_df[(today_df['Datetime'].dt.time >= time(9,15)) & (today_df['Datetime'].dt.time < time(9,30))]
+        if box_df.empty:
+            return
+        box_high = float(box_df['High'].max())
+        box_low = float(box_df['Low'].min())
+        today_df['EMA20'] = today_df['Close'].ewm(span=20, adjust=False).mean()
+        today_df['VWAP'] = calc_vwap(today_df)
+        today_df['RSI'] = calc_rsi(today_df['Close'], 14)
+        today_df['VolAvg'] = today_df['Volume'].rolling(20).mean()
+        after_df = today_df[today_df['Datetime'].dt.time >= time(9,30)]
+        if after_df.empty:
+            return
+        last = after_df.iloc[-1]
+        close = float(last['Close'])
+        low = float(last['Low'])
+        high = float(last['High'])
+        ema20 = float(last['EMA20'])
+        vwap = float(last['VWAP'])
+        rsi = float(last['RSI']) if not np.isnan(last['RSI']) else 50
+        vol = float(last['Volume'])
+        vol_avg = float(last['VolAvg']) if not np.isnan(last['VolAvg']) else vol
+        vol_ok = vol > vol_avg
+        clean = symbol.replace(".NS","")
+        trusted_bull = close > vwap and close > ema20 and rsi > 50 and vol_ok
+        trusted_bear = close < vwap and close < ema20 and rsi < 50 and vol_ok
+        if abs(gap) >= 2.0:
+            if close > box_high and close > vwap:
+                trusted = "🟢 TRUSTED BULLISH 🟢\n" if trusted_bull else ""
+                msg = f"""{trusted}💎 KHAN SAHAB PLATINUM 💎
+📌 SHARE: {clean} - CALL
+📊 GAP: {gap:.2f}%
+📦 BOX: {box_low:.2f} - {box_high:.2f}
+📍 VWAP: {vwap:.2f} - UPAR ✅
+📍 20 EMA: {ema20:.2f} - UPAR ✅
+📈 RSI: {rsi:.0f}
+💰 BUY @ {close:.2f} | SL {box_high:.2f} | TARGET {close + (box_high-box_low):.2f}"""
+                send_telegram(msg)
+            elif close < box_low and close < vwap:
+                trusted = "🔴 TRUSTED BEARISH 🔴\n" if trusted_bear else ""
+                msg = f"""{trusted}💎 KHAN SAHAB PLATINUM 💎
+📌 SHARE: {clean} - PUT
+📊 GAP: {gap:.2f}%
+📦 BOX: {box_low:.2f} - {box_high:.2f}
+📍 VWAP: {vwap:.2f} - NEECHE ✅
+📍 20 EMA: {ema20:.2f} - NEECHE ✅
+📈 RSI: {rsi:.0f}
+💰 BUY @ {close:.2f} | SL {box_low:.2f} | TARGET {close - (box_high-box_low):.2f}"""
+                send_telegram(msg)
+            return
+        touched_call = False
+        touched_put = False
+        for _, row in after_df.iterrows():
+            l = float(row['Low']); h = float(row['High'])
+            v = float(row['VWAP']); e = float(row['EMA20']); c = float(row['Close'])
+            if abs(l - v) < c*0.0005 and abs(l - e) < c*0.0005:
+                touched_call = True
+            if abs(h - v) < c*0.0005 and abs(h - e) < c*0.0005:
+                touched_put = True
+        if touched_call and close > box_high and vol_ok:
+            trusted = "🟢 TRUSTED BULLISH 🟢\n" if trusted_bull else ""
+            msg = f"""{trusted}🔹 KHAN SAHAB DIAMOND 🔹
+📌 SHARE: {clean} - CALL - Retest + Double Touch
+📊 GAP: {gap:.2f}%
+📦 BOX: {box_low:.2f} - {box_high:.2f}
+📍 VWAP + 20 EMA Touch ✅
+📈 RSI: {rsi:.0f}
+💰 BUY @ {close:.2f} | SL {box_low:.2f} | TARGET {close + (box_high-box_low):.2f}"""
+            send_telegram(msg)
+        elif touched_put and close < box_low and vol_ok:
+            trusted = "🔴 TRUSTED BEARISH 🔴\n" if trusted_bear else ""
+            msg = f"""{trusted}🔹 KHAN SAHAB DIAMOND 🔹
+📌 SHARE: {clean} - PUT - Retest + Double Touch
+📊 GAP: {gap:.2f}%
+📦 BOX: {box_low:.2f} - {box_high:.2f}
+📍 VWAP + 20 EMA Touch ✅
+📈 RSI: {rsi:.0f}
+💰 BUY @ {close:.2f} | SL {box_high:.2f} | TARGET {close - (box_high-box_low):.2f}"""
+            send_telegram(msg)
+    except Exception as e:
+        print(f"Error {symbol}: {e}")
 
-// ===== CONDITIONS =====
-isPlatinum = math.abs(gapPct) >= gapLimit
-isDiamond = math.abs(gapPct) < gapLimit
-
-// PLATINUM - Seedha BOX Breakout
-platCall = boxDone and isPlatinum and close > boxHigh and close > vwapVal
-platPut = boxDone and isPlatinum and close < boxLow and close < vwapVal
-
-// DIAMOND - Retrace + Double Touch
-// Price neeche aake VWAP + EMA20 dono ko touch kiya
-touchedBoth = math.abs(low - vwapVal) < close * 0.0005 and math.abs(low - ema20) < close * 0.0005
-touchedBothUp = math.abs(high - vwapVal) < close * 0.0005 and math.abs(high - ema20) < close * 0.0005
-
-var bool diamondTouchCall = false
-var bool diamondTouchPut = false
-if boxDone and isDiamond and touchedBoth
-    diamondTouchCall := true
-if boxDone and isDiamond and touchedBothUp
-    diamondTouchPut := true
-
-volOk = volume > volAvg
-diaCall = boxDone and isDiamond and diamondTouchCall and close > boxHigh and volOk
-diaPut = boxDone and isDiamond and diamondTouchPut and close < boxLow and volOk
-
-// ===== TRUSTED =====
-trustedBull = close > vwapVal and close > ema20 and rsiVal > 50 and volOk
-trustedBear = close < vwapVal and close < ema20 and rsiVal < 50 and volOk
-
-// ===== SIGNALS =====
-callSignal = platCall or diaCall
-putSignal = platPut or diaPut
-
-isPlatSignal = platCall or platPut
-signalType = isPlatSignal ? "PLATINUM" : "DIAMOND"
-trustedTxt = callSignal and trustedBull ? "🟢 TRUSTED BULLISH 🟢" : putSignal and trustedBear ? "🔴 TRUSTED BEARISH 🔴" : ""
-
-// ===== PLOT SIGNALS =====
-plotshape(callSignal, "CALL", shape.labelup, location.belowbar, color.green, text="CALL", textcolor=color.white, size=size.normal)
-plotshape(putSignal, "PUT", shape.labeldown, location.abovebar, color.red, text="PUT", textcolor=color.white, size=size.normal)
-
-// ===== TABLE - COPY PASTE KE LIYE SIGNAL INFO =====
-var table info = table.new(position.top_right, 1, 7, bgcolor=color.new(color.black, 80))
-if barstate.islast
-    table.cell(info, 0, 0, trustedTxt, text_color=color.white, text_size=size.normal)
-    table.cell(info, 0, 1, "KHAN SAHAB " + signalType, text_color=color.yellow, text_size=size.normal)
-    table.cell(info, 0, 2, "SHARE: " + syminfo.ticker + " | GAP: " + str.tostring(gapPct, "#.##") + "%", text_color=color.white)
-    table.cell(info, 0, 3, "BOX: " + str.tostring(boxLow, "#.##") + " - " + str.tostring(boxHigh, "#.##"), text_color=color.white)
-    table.cell(info, 0, 4, "VWAP: " + str.tostring(vwapVal, "#.##") + " | 20 EMA: " + str.tostring(ema20, "#.##"), text_color=color.white)
-    table.cell(info, 0, 5, "RSI: " + str.tostring(rsiVal, "#.##"), text_color=color.white)
-    table.cell(info, 0, 6, callSignal ? "BUY @ " + str.tostring(close, "#.##") + " | SL " + str.tostring(boxHigh - (boxHigh - boxLow), "#.##") : putSignal ? "BUY @ " + str.tostring(close, "#.##") + " | SL " + str.tostring(boxLow + (boxHigh - boxLow), "#.##") : "WAIT...", text_color=color.white)
-
-// ===== ALERTS - TELEGRAM KE LIYE =====
-alertcondition(callSignal, "KHAN CALL", "TRUSTED BULLISH - {{ticker}} CALL - BOX {{ticker}} - RSI")
-alertcondition(putSignal, "KHAN PUT", "TRUSTED BEARISH - {{ticker}} PUT - BOX {{ticker}} - RSI")
+if __name__ == "__main__":
+    print("Khan Bot Started -", datetime.now())
+    for sym in SYMBOLS:
+        check_stock(sym)
+    print("Done")
