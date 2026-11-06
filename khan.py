@@ -9,16 +9,11 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 SYMBOLS = [
-    "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
-    "KOTAKBANK.NS","SBIN.NS","AXISBANK.NS","LT.NS","TITAN.NS",
-    "ITC.NS","HINDUNILVR.NS","BAJFINANCE.NS","MARUTI.NS","TATAMOTORS.NS",
-    "TATASTEEL.NS","ONGC.NS","POWERGRID.NS","NTPC.NS","SUNPHARMA.NS",
-    "ADANIENT.NS","WIPRO.NS","HCLTECH.NS","TECHM.NS","ULTRACEMCO.NS",
-    "BAJAJFINSV.NS","BAJAJ-AUTO.NS","NESTLEIND.NS","BRITANNIA.NS","COALINDIA.NS",
-    "BPCL.NS","IOC.NS","HINDALCO.NS","JSWSTEEL.NS","GRASIM.NS",
-    "DIVISLAB.NS","DRREDDY.NS","CIPLA.NS","APOLLOHOSP.NS","HEROMOTOCO.NS",
-    "EICHERMOT.NS","M&M.NS","TATACONSUM.NS","ADANIPORTS.NS","HDFCLIFE.NS",
-    "SBILIFE.NS","ICICIPRULI.NS","SHRIRAMFIN.NS","TRENT.NS","BEL.NS"
+    "RELIANCE.NS","HDFCBANK.NS","SBIN.NS","ICICIBANK.NS","TCS.NS",
+    "INFY.NS","BHEL.NS","BEL.NS","TITAN.NS","ADANIENT.NS",
+    "ADANIPORTS.NS","TATAMOTORS.NS","TATASTEEL.NS","BHARTIARTL.NS","ITC.NS",
+    "LT.NS","BAJAJFINSV.NS","MARUTI.NS","HAL.NS","ONGC.NS",
+    "COALINDIA.NS","NTPC.NS","POWERGRID.NS","HINDALCO.NS","VEDL.NS"
 ]
 
 SENT_FILE = "sent.txt"
@@ -36,17 +31,23 @@ def save_sent(key):
 def send_telegram(msg, key):
     sent = load_sent()
     if key in sent:
-        return
+        return False
+    today_str = key.split("_")[0]
+    today_count = sum(1 for k in sent if k.startswith(today_str))
+    if today_count >= 3:
+        return False
     if not BOT_TOKEN or not CHAT_ID:
         print(msg)
-        return
+        return False
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
         r = requests.post(url, json={"chat_id": CHAT_ID, "text": msg}, timeout=10)
         if r.status_code == 200:
             save_sent(key)
+            return True
     except Exception as e:
         print("Telegram Error:", e)
+    return False
 
 def calc_rsi(series, period=14):
     delta = series.diff()
@@ -104,7 +105,6 @@ def check_stock(symbol):
         last = after_df.iloc[-1]
         prev_candle = after_df.iloc[-2]
         close = float(last['Close'])
-        # SL = Previous 5min candle ka Low / High
         prev_low = float(prev_candle['Low'])
         prev_high = float(prev_candle['High'])
         ema20 = float(last['EMA20'])
@@ -112,24 +112,28 @@ def check_stock(symbol):
         rsi = float(last['RSI']) if not np.isnan(last['RSI']) else 50
         vol = float(last['Volume'])
         vol_avg = float(last['VolAvg']) if not np.isnan(last['VolAvg']) else vol
-        vol_ok = vol > vol_avg
+        vol_ok = vol > (vol_avg * 1.5)
+        if not vol_ok:
+            return
         clean = symbol.replace(".NS","")
         date_str = str(today)
-        call_too_far = (close - box_high) / box_high * 100 > 0.8
-        put_too_far = (box_low - close) / box_low * 100 > 0.8
-        trusted_bull = close > vwap and close > ema20 and rsi > 50 and vol_ok
-        trusted_bear = close < vwap and close < ema20 and rsi < 50 and vol_ok
+        call_break = (close - box_high) / box_high * 100
+        put_break = (box_low - close) / box_low * 100
+        call_too_far = call_break > 0.8
+        put_too_far = put_break > 0.8
+        trusted_bull = close > vwap and close > ema20 and rsi > 60 and vol_ok
+        trusted_bear = close < vwap and close < ema20 and rsi < 40 and vol_ok
         min_risk = close * 0.002
         if abs(gap) >= 2.0:
-            if close > box_high and close > vwap and rsi > 50 and not call_too_far:
+            if close > box_high and trusted_bull and call_break > 0.2 and not call_too_far:
                 sl = prev_low
                 risk = close - sl
                 if risk < min_risk:
                     risk = min_risk
                     sl = close - risk
                 target = close + (risk * 2)
-                trusted = "🟢 TRUSTED BULLISH 🟢\n" if trusted_bull else ""
-                msg = f"""{trusted}💎 KHAN SAHAB PLATINUM 💎
+                msg = f"""🟢 TRUSTED BULLISH 🟢
+💎 KHAN SAHAB PLATINUM 💎
 📌 SHARE: {clean} - CALL
 📊 GAP: {gap:.2f}%
 📦 BOX: {box_low:.2f} - {box_high:.2f}
@@ -138,15 +142,15 @@ def check_stock(symbol):
 📈 RSI: {rsi:.0f}
 💰 BUY @ {close:.2f} | SL {sl:.2f} | TARGET {target:.2f}"""
                 send_telegram(msg, f"{date_str}_{clean}_PLAT_CALL")
-            elif close < box_low and close < vwap and rsi < 50 and not put_too_far:
+            elif close < box_low and trusted_bear and put_break > 0.2 and not put_too_far:
                 sl = prev_high
                 risk = sl - close
                 if risk < min_risk:
                     risk = min_risk
                     sl = close + risk
                 target = close - (risk * 2)
-                trusted = "🔴 TRUSTED BEARISH 🔴\n" if trusted_bear else ""
-                msg = f"""{trusted}💎 KHAN SAHAB PLATINUM 💎
+                msg = f"""🔴 TRUSTED BEARISH 🔴
+💎 KHAN SAHAB PLATINUM 💎
 📌 SHARE: {clean} - PUT
 📊 GAP: {gap:.2f}%
 📦 BOX: {box_low:.2f} - {box_high:.2f}
@@ -165,15 +169,15 @@ def check_stock(symbol):
                 touched_call = True
             if abs(h - v) < c*0.0005 and abs(h - e) < c*0.0005:
                 touched_put = True
-        if touched_call and close > box_high and vol_ok and rsi > 50 and not call_too_far:
+        if touched_call and close > box_high and trusted_bull and call_break > 0.2 and not call_too_far:
             sl = prev_low
             risk = close - sl
             if risk < min_risk:
                 risk = min_risk
                 sl = close - risk
             target = close + (risk * 2)
-            trusted = "🟢 TRUSTED BULLISH 🟢\n" if trusted_bull else ""
-            msg = f"""{trusted}🔹 KHAN SAHAB DIAMOND 🔹
+            msg = f"""🟢 TRUSTED BULLISH 🟢
+🔹 KHAN SAHAB DIAMOND 🔹
 📌 SHARE: {clean} - CALL - Retest + Double Touch
 📊 GAP: {gap:.2f}%
 📦 BOX: {box_low:.2f} - {box_high:.2f}
@@ -181,15 +185,15 @@ def check_stock(symbol):
 📈 RSI: {rsi:.0f}
 💰 BUY @ {close:.2f} | SL {sl:.2f} | TARGET {target:.2f}"""
             send_telegram(msg, f"{date_str}_{clean}_DIA_CALL")
-        elif touched_put and close < box_low and vol_ok and rsi < 50 and not put_too_far:
+        elif touched_put and close < box_low and trusted_bear and put_break > 0.2 and not put_too_far:
             sl = prev_high
             risk = sl - close
             if risk < min_risk:
                 risk = min_risk
                 sl = close + risk
             target = close - (risk * 2)
-            trusted = "🔴 TRUSTED BEARISH 🔴\n" if trusted_bear else ""
-            msg = f"""{trusted}🔹 KHAN SAHAB DIAMOND 🔹
+            msg = f"""🔴 TRUSTED BEARISH 🔴
+🔹 KHAN SAHAB DIAMOND 🔹
 📌 SHARE: {clean} - PUT - Retest + Double Touch
 📊 GAP: {gap:.2f}%
 📦 BOX: {box_low:.2f} - {box_high:.2f}
