@@ -61,7 +61,7 @@ def calc_vwap(df):
 
 def check_stock(symbol):
     try:
-        df = yf.download(symbol, period="2d", interval="5m", progress=False, auto_adjust=False)
+        df = yf.download(symbol, period="5d", interval="5m", progress=False, auto_adjust=False)
         if df.empty or len(df) < 30:
             return
         if isinstance(df.columns, pd.MultiIndex):
@@ -72,10 +72,14 @@ def check_stock(symbol):
             df['Datetime'] = df['Datetime'].dt.tz_convert('Asia/Kolkata').dt.tz_localize(None)
         except:
             pass
-        today = df['Datetime'].dt.date.max()
+        all_dates = sorted(df['Datetime'].dt.date.unique())
+        today = all_dates[-1]
         today_df = df[df['Datetime'].dt.date == today].copy()
+        if len(today_df) < 10 and len(all_dates) >= 2:
+            today = all_dates[-2]
+            today_df = df[df['Datetime'].dt.date == today].copy()
         prev_df = df[df['Datetime'].dt.date < today]
-        if today_df.empty or prev_df.empty:
+        if today_df.empty or prev_df.empty or len(today_df) < 10:
             return
         prev_close = float(prev_df['Close'].iloc[-1])
         day_open = float(today_df['Open'].iloc[0])
@@ -85,17 +89,24 @@ def check_stock(symbol):
             return
         box_high = float(box_df['High'].max())
         box_low = float(box_df['Low'].min())
+        if box_high <= box_low:
+            return
         today_df['EMA20'] = today_df['Close'].ewm(span=20, adjust=False).mean()
         today_df['VWAP'] = calc_vwap(today_df)
         today_df['RSI'] = calc_rsi(today_df['Close'], 14)
         today_df['VolAvg'] = today_df['Volume'].rolling(20).mean()
         after_df = today_df[today_df['Datetime'].dt.time >= time(9,30)]
-        if after_df.empty:
+        if after_df.empty or len(after_df) < 3:
+            return
+        after_df = after_df[after_df['High'] > after_df['Low']]
+        if len(after_df) < 3:
             return
         last = after_df.iloc[-1]
+        prev_candle = after_df.iloc[-2]
         close = float(last['Close'])
-        last_low = float(last['Low'])
-        last_high = float(last['High'])
+        # SL = Previous 5min candle ka Low / High
+        prev_low = float(prev_candle['Low'])
+        prev_high = float(prev_candle['High'])
         ema20 = float(last['EMA20'])
         vwap = float(last['VWAP'])
         rsi = float(last['RSI']) if not np.isnan(last['RSI']) else 50
@@ -108,10 +119,14 @@ def check_stock(symbol):
         put_too_far = (box_low - close) / box_low * 100 > 0.8
         trusted_bull = close > vwap and close > ema20 and rsi > 50 and vol_ok
         trusted_bear = close < vwap and close < ema20 and rsi < 50 and vol_ok
+        min_risk = close * 0.002
         if abs(gap) >= 2.0:
             if close > box_high and close > vwap and rsi > 50 and not call_too_far:
-                sl = last_low
+                sl = prev_low
                 risk = close - sl
+                if risk < min_risk:
+                    risk = min_risk
+                    sl = close - risk
                 target = close + (risk * 2)
                 trusted = "🟢 TRUSTED BULLISH 🟢\n" if trusted_bull else ""
                 msg = f"""{trusted}💎 KHAN SAHAB PLATINUM 💎
@@ -124,8 +139,11 @@ def check_stock(symbol):
 💰 BUY @ {close:.2f} | SL {sl:.2f} | TARGET {target:.2f}"""
                 send_telegram(msg, f"{date_str}_{clean}_PLAT_CALL")
             elif close < box_low and close < vwap and rsi < 50 and not put_too_far:
-                sl = last_high
+                sl = prev_high
                 risk = sl - close
+                if risk < min_risk:
+                    risk = min_risk
+                    sl = close + risk
                 target = close - (risk * 2)
                 trusted = "🔴 TRUSTED BEARISH 🔴\n" if trusted_bear else ""
                 msg = f"""{trusted}💎 KHAN SAHAB PLATINUM 💎
@@ -148,8 +166,11 @@ def check_stock(symbol):
             if abs(h - v) < c*0.0005 and abs(h - e) < c*0.0005:
                 touched_put = True
         if touched_call and close > box_high and vol_ok and rsi > 50 and not call_too_far:
-            sl = last_low
+            sl = prev_low
             risk = close - sl
+            if risk < min_risk:
+                risk = min_risk
+                sl = close - risk
             target = close + (risk * 2)
             trusted = "🟢 TRUSTED BULLISH 🟢\n" if trusted_bull else ""
             msg = f"""{trusted}🔹 KHAN SAHAB DIAMOND 🔹
@@ -161,8 +182,11 @@ def check_stock(symbol):
 💰 BUY @ {close:.2f} | SL {sl:.2f} | TARGET {target:.2f}"""
             send_telegram(msg, f"{date_str}_{clean}_DIA_CALL")
         elif touched_put and close < box_low and vol_ok and rsi < 50 and not put_too_far:
-            sl = last_high
+            sl = prev_high
             risk = sl - close
+            if risk < min_risk:
+                risk = min_risk
+                sl = close + risk
             target = close - (risk * 2)
             trusted = "🔴 TRUSTED BEARISH 🔴\n" if trusted_bear else ""
             msg = f"""{trusted}🔹 KHAN SAHAB DIAMOND 🔹
