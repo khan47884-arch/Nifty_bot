@@ -8,11 +8,46 @@ def tg(m):
     try: requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id":CHAT,"text":m}, timeout=20)
     except: pass
 
-STOCKS=["RVNL","IRFC","TITAGARH","TEXRAIL","BHEL","SUZLON","SJVN","NHPC","TATASTEEL","JSWSTEEL","SAIL","ADANIENT","ADANIPOWER","ADANIGREEN","TATAPOWER","ZOMATO","PAYTM","NYKAA","DELHIVERY","TRIDENT","NTPC","COALINDIA","POWERGRID","ONGC","RELIANCE","TCS","INFY","WIPRO","HCLTECH","TECHM","LTIM","TATAMOTORS","MARUTI","M&M","BAJAJ-AUTO","EICHERMOT","HEROMOTOCO","TVSMOTOR","ASHOKLEY","BAJAJFINSV","BAJFINANCE","SBIN","ICICIBANK","HDFCBANK","AXISBANK","KOTAKBANK","INDUSINDBK","FEDERALBNK","BANDHANBNK","IDFCFIRSTB","PNB","BANKBARODA","CANBK","UNIONBANK","INDIANB","YESBANK","AUBANK","RBLBANK","EQUITASBNK","UJJIVANSFB","HDFCLIFE","SBILIFE","ICICIPRULI","LICI","ADANIPORTS","CONCOR","IRCON","RAILTEL","JUPITERWAG","TITAN","ITC","BRITANNIA","NESTLEIND","HINDUNILVR","DABUR","MARICO","GODREJCP","COLPAL","MUTHOOTFIN","MANAPPURAM","IIFL","MOTILALOFS","ANGELONE","BSE","CDSL","MCX","VEDL","HINDALCO","NATIONALUM","HINDZINC","JSWENERGY","TORNTPOWER","SUNPHARMA","DRREDDY","CIPLA","DIVISLAB","LUPIN","AUROPHARMA","ALKEM","BIOCON","LAURUSLABS","GLENMARK","IPCALAB","ZYDUSLIFE","MANKIND","APOLLOHOSP","MAXHEALTH","FORTIS","DLF","GODREJPROP","OBEROIRL","PRESTIGE","BRIGADE","SOBHA","LODHA","DIXON","AMBER","KAYNES","CROMPTON","HAVELLS","VOLTAS","BLUESTARCO","POLYCAB","KEI","ASTRAL","APLAPOLLO","JINDALSTEL","WELCORP","VBL","UBL","MCDOWELL-N","RADICO","INDIGO","GMRINFRA","IRB","NBCC","NCC","LT","SIEMENS","ABB","CUMMINSIND","THERMAX","BHARATFORG","MOTHERSON","BOSCHLTD","HAL","BEL","BDL","MAZDOCK","COCHINSHIP","BHARTIARTL","IDEA","HFCL","TATACOMM","TATAELXSI","KPITTECH","LTTS","ULTRACEMCO","ACC","AMBUJACEM","JKCEMENT","RAMCOCEM","SHREECEM","GRASIM","PIDILITIND","ASIANPAINT","BERGERPAINT","ATUL","AARTIIND","DEEPAKNTR","NAVINFLUOR","SRF","UPL","PIIND","COROMANDEL","CHAMBLFERT","BATAINDIA","RELAXO","KALYANKJIL","PAGEIND","TRENT","DMART","ABFRL","SAFARI","HINDCOPPER","MOIL","NMDC","HINDPETRO","BPCL","IOC","GAIL","IGL","MGL","PETRONET","OIL","PFC","REC","IREDA","HUDCO","IRCTC","JPOWER","TATATECH","HDFCAMC","NAM-INDIA","UTIAMC","OFSS","COFORGE","PERSISTENT","MPHASIS","TATACONSUM","JUBLFOOD","DEVYANI","SAPPHIRE","WESTLIFE","SENCO","TANLA","AFFLE","NAUKRI","INDIAMART","JUSTDIAL","INTELLECT","BSOFT","MASTEK","ZENSAR","CYIENT","SONATSOFTW","ELECON","TRIVENI","PRAJIND","AIAENG","CARBORUNDU","GRINDWELL","HINDOILEXP","GSPL","GUJGAS","IEX","CESC","JSWINFRA","ADANIENSOL","TORNTPHARM","ABBOTINDIA","SANOFI","PFIZER","AJANTPHARM","GRANULES","JBCHEPHARM","ENDURANCE","MINDACORP","SONACOMS","BALKRISIND","MRF","APOLLOTYRE","CEAT","BAJAJHLDNG","CHOLAFIN","SHRIRAMFIN","LTF","M&MFIN","CUB","KARURVYSYA","CITYUNION","DCBBANK","IDBI","BANKINDIA","MAHABANK","CENTRALBK","UCOBANK","IOB","PSB","J&KBANK","INDIACEM","HEIDELBERG","PRISMJOHN","ORIENTCEM","SAGCEM","DELTACORP","NAZARA","EASEMYTRIP","ALOKIND","JAIPRAKPOW","GOLDBEES","SILVERBEES","NIFTYBEES","BANKBEES"]
+STOCKS=["RVNL","IRFC","TITAGARH","TEXRAIL","BHEL","SUZLON","SJVN","NHPC","ADANIENT","ADANIPOWER","ADANIGREEN","TATAPOWER","ZOMATO","PAYTM","NYKAA","DELHIVERY","TATAMOTORS","M&M","BAJAJ-AUTO","EICHERMOT","HEROMOTOCO","TVSMOTOR","ASHOKLEY","BAJAJFINSV","BAJFINANCE","SBIN","AXISBANK","KOTAKBANK","INDUSINDBK","FEDERALBNK","AUBANK","ADANIPORTS","CONCOR","IRCON","RAILTEL","JUPITERWAG","MUTHOOTFIN","MANAPPURAM","MOTILALOFS","ANGELONE","BSE","CDSL","MCX","JSWENERGY","TORNTPOWER","DIVISLAB","MANKIND","APOLLOHOSP","MAXHEALTH","FORTIS","DIXON","AMBER","KAYNES","HAVELLS","VOLTAS","POLYCAB","KEI","ASTRAL","APLAPOLLO","VBL","INDIGO","NBCC","NCC","LT","SIEMENS","ABB","CUMMINSIND","THERMAX","BHARATFORG","MOTHERSON","BOSCHLTD","HAL","BEL","BDL","MAZDOCK","COCHINSHIP","HFCL","TATACOMM","TATAELXSI","KPITTECH","LTTS","PFC","REC","IREDA","HUDCO","IRCTC","TATATECH","HDFCAMC","COFORGE","PERSISTENT","ELECON","TRIVENI","PRAJIND","AIAENG","IEX","CESC","JSWINFRA","ADANIENSOL","CHOLAFIN","SHRIRAMFIN","WAAREERTL","PREMIERENE","VIKRAMSOLR","INOXWIND","KPIGREEN","NETWEB","ZAGGLE","E2E","PGEL","KPRMILL","CRAFTSMAN","SUPREMEIND","NUVAMA","360ONE","NEULANDLAB","SYNGENE","APARINDS","RRKABEL","CGPOWER","POWERINDIA"]
+
+def nifty_ok():
+    try:
+        n = yf.download("^NSEI", period="1y", interval="1d", progress=False, auto_adjust=True)
+        if len(n)<210: return True
+        if isinstance(n.columns, pd.MultiIndex): n.columns=n.columns.get_level_values(0)
+        sma200 = n["Close"].rolling(200).mean().iloc[-1]
+        curr = float(n["Close"].iloc[-1])
+        return curr > float(sma200)
+    except: return True
+
+MARKET_OK = nifty_ok()
+
+def detect_wave3_start(w):
+    try:
+        if len(w) < 30: return False
+        closes = w["Close"].values
+        low_idx = closes[-30:-10].argmin()
+        w0 = float(closes[-30+low_idx])
+        w1 = float(max(closes[-30+low_idx:]))
+        w1_idx = list(closes).index(w1) if w1 in closes else -20
+        segment = closes[w1_idx:]
+        if len(segment) < 5: return False
+        w2 = float(min(segment[:10]))
+        wave1_len = w1 - w0
+        if wave1_len <= 0: return False
+        retrace2 = (w1 - w2) / wave1_len
+        curr = float(closes[-1]); prev = float(closes[-2])
+        if 0.38 <= retrace2 <= 0.62 and prev <= w1 and curr > w1 and curr <= w1 * 1.08:
+            return True
+        return False
+    except: return False
 
 FOUND_PLATINUM=False
 FOUND_DIAMOND=False
+SIGNAL_COUNT=0
+MAX_SIGNALS=5
 for SYM in STOCKS:
+    if SIGNAL_COUNT>=MAX_SIGNALS: break
     try:
         tk = yf.Ticker(f"{SYM}.NS")
         info = tk.info or {}
@@ -35,6 +70,7 @@ for SYM in STOCKS:
                 sales_cagr = sales_g; profit_cagr = profit_g
         except:
             sales_cagr = sales_g; profit_cagr = profit_g
+        bhel_turnaround = (profit_cagr >= 20 and sales_cagr >= 15)
         ocf = 1
         try:
             cf = tk.cashflow
@@ -61,6 +97,11 @@ for SYM in STOCKS:
         volx = vol/va if va>0 else 0
         breakout = close > m_high and float(prev_w["Close"]) <= m_high
         tech_ok = volx >= 1.5 and close > ema20 and 55 < rsi < 78
+        is_wave3_start = detect_wave3_start(w)
+        if is_wave3_start:
+            elliott_txt = "🌊 Wave 3 STARTING ✅ BONUS - Abhi Tezi Shuru Hui"
+        else:
+            elliott_txt = "🌊 Wave 3 Starting - No Bonus"
         score = 0
         if 800_0000000 <= mcap <= 20000_0000000: score += 1
         if promoter >= 50: score += 1
@@ -72,22 +113,30 @@ for SYM in STOCKS:
         if 0 < pe <= 40: score += 1
         if breakout: score += 1
         if tech_ok: score += 1
-        if score == 10:
+        if score == 10 and MARKET_OK:
             tag = "💎 PLATINUM MULTIBAGGER 💎"
             hold = "LONG TERM - 5-7 Saal - PLATINUM"
+            FOUND_PLATINUM=True
+        elif score >= 7 and is_wave3_start and bhel_turnaround and MARKET_OK:
+            tag = "💎 PLATINUM MULTIBAGGER 💎 [Wave 3 START + BHEL TYPE]"
+            hold = "LONG TERM - 5-7 Saal - PLATINUM (BHEL TYPE)"
             FOUND_PLATINUM=True
         elif score >= 7:
             tag = "💠 DIAMOND SHORT TERM 💠"
             hold = "SHORT TERM - 2-4 Hafte - DIAMOND"
+            if not MARKET_OK:
+                hold = "SHORT TERM - DIAMOND ONLY (Nifty 200 se neeche - Market Weak)"
             FOUND_DIAMOND=True
         else:
             continue
+        SIGNAL_COUNT+=1
         stamp=datetime.now(IST).strftime('%d-%b %I:%M %p IST')
         sl = max(m_low*0.97, float(c["Low"])*0.97)
         risk = close - sl
         t1 = close + risk*2; t2 = close + risk*4
-        msg=f"{tag}\n━━━━━━━━━━━━━━━\n🏢 {SYM}\n💰 ENTRY: Rs {close:.0f} (Monthly High {m_high:.0f} Break)\n🛡️ SL: Rs {sl:.0f} (Monthly Low {m_low:.0f})\n🎯 T1: Rs {t1:.0f} | T2: Rs {t2:.0f}\n━━━━━━━━━━━━━━━\n⭐ SCORE: {score}/10 | {hold}\n📊 Mcap {mcap/10000000:.0f}Cr | P/E {pe:.0f} | ROE {roe:.0f}% | Debt {de:.2f}\n👑 Promoter {promoter:.0f}% | FII/DII {inst_hold:.0f}%\n📈 Sales CAGR {sales_cagr:.0f}% | Profit CAGR {profit_cagr:.0f}%\n📊 Vol x{volx:.1f} | RSI {rsi:.0f} | Cash Flow +ve\n⏰ {stamp}\n🚀 V8 FINAL DONE"
+        qty_1lakh = int(2000 / risk) if risk>0 else 0
+        msg=f"{tag}\n━━━━━━━━━━━━━━━\n🏢 {SYM}\n💰 ENTRY: Rs {close:.0f} (Monthly High {m_high:.0f} Break)\n🛡️ SL: Rs {sl:.0f} (Monthly Low {m_low:.0f})\n🎯 T1: Rs {t1:.0f} | T2: Rs {t2:.0f}\n━━━━━━━━━━━━━━━\n⭐ SCORE: {score}/10 | {hold}\n{elliott_txt}\n📊 Mcap {mcap/10000000:.0f}Cr | P/E {pe:.0f} | ROE {roe:.0f}% | Debt {de:.2f}\n👑 Promoter {promoter:.0f}% | FII/DII {inst_hold:.0f}%\n📈 Sales CAGR {sales_cagr:.0f}% | Profit CAGR {profit_cagr:.0f}% | BHEL Turnaround: {'YES' if bhel_turnaround else 'NO'}\n📊 Vol x{volx:.1f} | RSI {rsi:.0f} | Cash Flow +ve\n📊 Market: {'Nifty 200 se Upar ✅' if MARKET_OK else 'Nifty 200 se Neeche ⚠️'}\n━━━━━━━━━━━━━━━\n📌 V11 PLAN - TRAILING + PARTIAL:\n✅ T1 pe 50% BOOK KARO, SL ko ENTRY pe le aao - FREE TRADE\n✅ T2 pe SL ko T1 pe le jao - Ab LOSS nahi hoga\n✅ RISK 2% RULE: 1 Lakh Capital pe Max Qty {qty_1lakh} share - Risk 2000 se zyada nahi\n✅ MAX 5 POSITION: Ye {SIGNAL_COUNT}/5 Signal Hai\n⏰ {stamp}\n🚀 V11 FINAL 120 DONE"
         tg(msg)
     except: continue
 if not FOUND_PLATINUM and not FOUND_DIAMOND:
-    tg(f"✨ V8 FINAL DONE ✨\nAaj koi PLATINUM ya DIAMOND nahi - Koi 7/10 pass nahi hua\n⏰ {datetime.now(IST).strftime('%d-%b %I:%M %p IST')}")
+    tg(f"✨ V11 FINAL 120 DONE ✨\nAaj koi PLATINUM ya DIAMOND nahi - Koi 7/10 pass nahi hua\nMarket: {'Nifty 200 se Upar ✅' if MARKET_OK else 'Nifty 200 se Neeche ⚠️ - Isliye NO PLATINUM'}\n⏰ {datetime.now(IST).strftime('%d-%b %I:%M %p IST')}")
