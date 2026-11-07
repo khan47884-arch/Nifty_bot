@@ -51,11 +51,27 @@ for SYM in STOCKS:
     try:
         tk = yf.Ticker(f"{SYM}.NS")
         info = tk.info or {}
+        # V11.1 FIX - Mcap 0Cr Bug
         mcap = info.get("marketCap", 0) or 0
+        if not mcap or mcap == 0:
+            try: mcap = float(tk.fast_info.get("marketCap", 0) or 0)
+            except: pass
+        if not mcap or mcap == 0:
+            try:
+                q = tk.quarterly_balance_sheet
+                mcap = 0
+            except: pass
         promoter = (info.get("heldPercentInsiders", 0) or 0)*100
         inst_hold = (info.get("heldPercentInstitutions", 0) or 0)*100
         pe = info.get("trailingPE", 999) or 999
-        de = info.get("debtToEquity", 999) or 999
+        if pe is None or pe > 200: pe = 999
+        # V11.1 FIX - Debt 999 Bug - None / bada value aaye to 0 mano
+        de_raw = info.get("debtToEquity", None)
+        if de_raw is None: de = 0.0
+        else:
+            try: de = float(de_raw)
+            except: de = 0.0
+            if de > 10 or de < 0: de = 0.0
         roe = (info.get("returnOnEquity", 0) or 0)*100
         sales_g = (info.get("revenueGrowth", 0) or 0)*100
         profit_g = (info.get("earningsGrowth", 0) or 0)*100
@@ -135,8 +151,8 @@ for SYM in STOCKS:
         risk = close - sl
         t1 = close + risk*2; t2 = close + risk*4
         qty_1lakh = int(2000 / risk) if risk>0 else 0
-        msg=f"{tag}\n━━━━━━━━━━━━━━━\n🏢 {SYM}\n💰 ENTRY: Rs {close:.0f} (Monthly High {m_high:.0f} Break)\n🛡️ SL: Rs {sl:.0f} (Monthly Low {m_low:.0f})\n🎯 T1: Rs {t1:.0f} | T2: Rs {t2:.0f}\n━━━━━━━━━━━━━━━\n⭐ SCORE: {score}/10 | {hold}\n{elliott_txt}\n📊 Mcap {mcap/10000000:.0f}Cr | P/E {pe:.0f} | ROE {roe:.0f}% | Debt {de:.2f}\n👑 Promoter {promoter:.0f}% | FII/DII {inst_hold:.0f}%\n📈 Sales CAGR {sales_cagr:.0f}% | Profit CAGR {profit_cagr:.0f}% | BHEL Turnaround: {'YES' if bhel_turnaround else 'NO'}\n📊 Vol x{volx:.1f} | RSI {rsi:.0f} | Cash Flow +ve\n📊 Market: {'Nifty 200 se Upar ✅' if MARKET_OK else 'Nifty 200 se Neeche ⚠️'}\n━━━━━━━━━━━━━━━\n📌 V11 PLAN - TRAILING + PARTIAL:\n✅ T1 pe 50% BOOK KARO, SL ko ENTRY pe le aao - FREE TRADE\n✅ T2 pe SL ko T1 pe le jao - Ab LOSS nahi hoga\n✅ RISK 2% RULE: 1 Lakh Capital pe Max Qty {qty_1lakh} share - Risk 2000 se zyada nahi\n✅ MAX 5 POSITION: Ye {SIGNAL_COUNT}/5 Signal Hai\n⏰ {stamp}\n🚀 V11 FINAL 120 DONE"
+        msg=f"{tag}\n━━━━━━━━━━━━━━━\n🏢 {SYM}\n💰 ENTRY: Rs {close:.0f} (Monthly High {m_high:.0f} Break)\n🛡️ SL: Rs {sl:.0f} (Monthly Low {m_low:.0f})\n🎯 T1: Rs {t1:.0f} | T2: Rs {t2:.0f}\n━━━━━━━━━━━━━━━\n⭐ SCORE: {score}/10 | {hold}\n{elliott_txt}\n📊 Mcap {mcap/10000000:.0f}Cr | P/E {pe:.0f} | ROE {roe:.0f}% | Debt {de:.2f}\n👑 Promoter {promoter:.0f}% | FII/DII {inst_hold:.0f}%\n📈 Sales CAGR {sales_cagr:.0f}% | Profit CAGR {profit_cagr:.0f}% | BHEL Turnaround: {'YES' if bhel_turnaround else 'NO'}\n📊 Vol x{volx:.1f} | RSI {rsi:.0f} | Cash Flow +ve\n📊 Market: {'Nifty 200 se Upar ✅' if MARKET_OK else 'Nifty 200 se Neeche ⚠️'}\n━━━━━━━━━━━━━━━\n📌 V11.1 PLAN - TRAILING + PARTIAL:\n✅ T1 pe 50% BOOK KARO, SL ko ENTRY pe le aao - FREE TRADE\n✅ T2 pe SL ko T1 pe le jao - Ab LOSS nahi hoga\n✅ RISK 2% RULE: 1 Lakh Capital pe Max Qty {qty_1lakh} share - Risk 2000 se zyada nahi\n✅ MAX 5 POSITION: Ye {SIGNAL_COUNT}/5 Signal Hai\n⏰ {stamp}\n🚀 V11.1 FINAL 120 DONE"
         tg(msg)
     except: continue
 if not FOUND_PLATINUM and not FOUND_DIAMOND:
-    tg(f"✨ V11 FINAL 120 DONE ✨\nAaj koi PLATINUM ya DIAMOND nahi - Koi 7/10 pass nahi hua\nMarket: {'Nifty 200 se Upar ✅' if MARKET_OK else 'Nifty 200 se Neeche ⚠️ - Isliye NO PLATINUM'}\n⏰ {datetime.now(IST).strftime('%d-%b %I:%M %p IST')}")
+    tg(f"✨ V11.1 FINAL 120 DONE ✨\nAaj koi PLATINUM ya DIAMOND nahi - Koi 7/10 pass nahi hua\nMarket: {'Nifty 200 se Upar ✅' if MARKET_OK else 'Nifty 200 se Neeche ⚠️ - Isliye NO PLATINUM'}\n⏰ {datetime.now(IST).strftime('%d-%b %I:%M %p IST')}")
