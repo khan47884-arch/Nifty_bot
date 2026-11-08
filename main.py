@@ -19,6 +19,7 @@ touched = {}
 already_sent = set()
 system_built = False
 exit_sent = False
+last_box_date = None
 
 def calc_rsi(series, period=14):
     delta = series.diff()
@@ -27,9 +28,13 @@ def calc_rsi(series, period=14):
     rs = gain / (loss + 1e-9)
     return 100 - (100 / (1 + rs))
 
-def calc_vwap(df):
-    tp = (df['High'] + df['Low'] + df['Close']) / 3
-    return (tp * df['Volume']).cumsum() / (df['Volume'].cumsum() + 1e-9)
+def calc_vwap_daily(df):
+    df = df.copy()
+    df['TP'] = (df['High'] + df['Low'] + df['Close']) / 3
+    df['TPV'] = df['TP'] * df['Volume']
+    df['VWAP'] = df.groupby(df['Dt'].dt.date)['TPV'].cumsum() / df.groupby(df['Dt'].dt.date)['Volume'].cumsum()
+    df = df.drop(columns=['TP','TPV'])
+    return df
 
 def clean_df(df):
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
@@ -42,9 +47,10 @@ def clean_df(df):
     return df
 
 def build_box():
-    global box_data, touched
+    global box_data, touched, last_box_date
     box_data = {}; touched = {}
     today = datetime.now(IST).date()
+    last_box_date = today
     msg = "✨ Option Bond 💥 V12 BOX READY ✨\n━━━━━━━━━━━━━━━━\n⏰ 9:15 - 9:30 BOX VERIFIED ✅\n"
     for name, sym in SYMBOLS.items():
         try:
@@ -61,7 +67,7 @@ def build_box():
             msg += f"📊 {name} BOX [15m]: {bl:.0f} - {bh:.0f}\n"
             print(name, "BOX 15m", bl, bh)
         except Exception as e: print(name, "Box Fail", e)
-    msg += "━━━━━━━━━━━━━━━━\n👑 V12: 15m Wave3 + 5m Box + 1H Trend + Liquidity Sweep\n📦 BOX 15m | 📈 TREND 15m | ⚡ WORK 5m\n❌ BOX ke ANDAR koi signal nahi"
+    msg += "━━━━━━━━━━━━━━━━\n👑 V12: 15m Box + 15m Trend + Liquidity Sweep + Retest\n📦 BOX 15m | 📈 TREND 15m | ⚡ WORK 5m\n❌ BOX ke ANDAR koi signal nahi"
     tg(msg)
 
 def get_strike(name, entry):
@@ -101,14 +107,6 @@ def detect_sweep(df5, box_low, box_high, direction):
         back_inside = float(df5.iloc[-1]['Close']) < box_high
         return swept and back_inside
 
-def detect_wave3(df15, direction):
-    if len(df15) < 6: return False
-    last = df15.tail(3)
-    if direction == "CALL":
-        return bool(last['Close'].iloc[-1] > last['Close'].iloc[0] and last['High'].iloc[-1] > last['High'].iloc[0])
-    else:
-        return bool(last['Close'].iloc[-1] < last['Close'].iloc[0] and last['Low'].iloc[-1] < last['Low'].iloc[0])
-
 def check_one(name, sym):
     if name not in box_data: return
     try:
@@ -118,7 +116,7 @@ def check_one(name, sym):
         df15 = clean_df(df15)
         df15 = df15[df15['Dt'].dt.date == today]
         if len(df15) < 5: return
-        df15["VWAP"] = calc_vwap(df15)
+        df15 = calc_vwap_daily(df15)
         df15["EMA20"] = df15["Close"].ewm(span=20, adjust=False).mean()
         df15["EMA50"] = df15["Close"].ewm(span=50, adjust=False).mean()
         last15 = df15.iloc[-1]
@@ -134,7 +132,7 @@ def check_one(name, sym):
         df5 = clean_df(df5)
         df5 = df5[df5['Dt'].dt.date == today]
         if len(df5) < 5: return
-        df5["VWAP"] = calc_vwap(df5)
+        df5 = calc_vwap_daily(df5)
         df5["EMA20"] = df5["Close"].ewm(span=20, adjust=False).mean()
         df5["RSI"] = calc_rsi(df5["Close"])
         after_box = df5[df5['Dt'].dt.time >= pd.to_datetime("09:30").time()].copy()
@@ -148,6 +146,7 @@ def check_one(name, sym):
         last5 = df5.iloc[-1]
         close5 = float(last5['Close'])
         vwap5 = float(last5['VWAP']); ema5 = float(last5['EMA20']); rsi5 = float(last5['RSI'])
+        candle_time = str(last5['Dt'])
         is_retest = touched[name]
         pattern, p_side = detect_pattern(df5)
         print(f"{name} [5m] Close:{close5:.0f} VWAP:{vwap5:.0f} EMA:{ema5:.0f} Retest:{is_retest} Pattern:{pattern} Trend:{trend}")
@@ -160,53 +159,50 @@ def check_one(name, sym):
             t1, t2, t3, buf = "+200", "+300", "+400", 20
         if close5 > box_high and close5 > vwap5 and close5 > ema5 and trend != "DOWNTREND":
             sweep = detect_sweep(df5, box_low, box_high, "CALL")
-            wave3 = detect_wave3(df15, "CALL")
             pattern_ok = (pattern is not None and p_side == "Bullish")
-            score = int(wave3) + int(trend == "UPTREND") + int(sweep) + int(is_retest or pattern_ok)
-            if score == 4:
-                level = "👑👑👑 3 PRO 👑👑👑"; qty = "FULL LOT ✅"; target_line = f"🎯 Target {t1} / {t2} / {t3} - FULL LOT\n🧹 Sweep ✅ + Wave3 ✅ + Trend ✅ + Retest/Pattern ✅"; tag = "PRO3"
-            elif score == 3:
-                level = "👑👑 2 PLATINUM 👑👑"; qty = "HALF LOT"; target_line = f"🎯 Target {t1} - HALF LOT\n🧹 Sweep:{sweep} | Wave3:{wave3} | Trend:{trend}"; tag = "PLAT2"
+            score = int(trend == "UPTREND") + int(sweep) + int(is_retest or pattern_ok)
+            if score == 3:
+                level = "👑👑👑 3 PRO 👑👑👑"; qty = "FULL LOT ✅"; target_line = f"🎯 Target {t1} / {t2} / {t3} - FULL LOT\n🧹 Sweep ✅ + Trend ✅ + Retest/Pattern ✅"; tag = "PRO3"
+            elif score == 2:
+                level = "👑👑 2 PLATINUM 👑👑"; qty = "HALF LOT"; target_line = f"🎯 Target {t1} - HALF LOT\n🧹 Sweep:{sweep} | Trend:{trend}"; tag = "PLAT2"
             else:
-                print(f"{name} CALL Score {score}/4 - NO TRADE V12"); return
-            key = f"{today}_{name}_CALL_{tag}_V12"
+                print(f"{name} CALL Score {score}/3 - NO TRADE V12"); return
+            key = f"{today}_{name}_CALL_{tag}_{candle_time}"
             if key not in already_sent:
                 strike = get_strike(name, close5)
                 sl = int(box_low - buf)
                 pat_txt = f"🕯️ {pattern} BONUS ✅" if pattern_ok else "🕯️ Pattern - No Bonus"
-                msg = f"{level}\n✨ Option Bond 💥 V12 ✨\n━━━━━━━━━━━━━━━━\n📊 {name} - CALL\n📦 15m BOX: {box_low:.0f} - {box_high:.0f}\n📈 TREND [15m]: {trend} ✅\n🌊 Wave 3: {'✅' if wave3 else '❌'}\n🧹 Liquidity Sweep: {'✅' if sweep else '❌'}\n{pat_txt}\n📍 VWAP [5m]: {vwap5:.0f} - UPAR ✅\n📍 20 EMA [5m]: {ema5:.0f} - UPAR ✅\n📈 RSI [5m]: {rsi5:.0f}\n💥 Breakout [5m]: {box_high:.0f} ke UPAR ✅\n━━━━━━━━━━━━━━━━\n💰 Entry {strike}-CE\n🛑 SL: {sl}\n📦 Qty: {qty}\n✅ Verify Buy Khan Sahab\n{target_line}\n━━━━━━━━━━━━━━━━"
+                msg = f"{level}\n✨ Option Bond 💥 V12 ✨\n━━━━━━━━━━━━━━━━\n📊 {name} - CALL\n📦 15m BOX: {box_low:.0f} - {box_high:.0f}\n📈 TREND [15m]: {trend} ✅\n🧹 Liquidity Sweep: {'✅' if sweep else '❌'}\n{pat_txt}\n📍 VWAP [5m]: {vwap5:.0f} - UPAR ✅\n📍 20 EMA [5m]: {ema5:.0f} - UPAR ✅\n📈 RSI [5m]: {rsi5:.0f}\n💥 Breakout [5m]: {box_high:.0f} ke UPAR ✅\n━━━━━━━━━━━━━━━━\n💰 Entry {strike}-CE\n🛑 SL: {sl}\n📦 Qty: {qty}\n✅ Verify Buy Khan Sahab\n{target_line}\n━━━━━━━━━━━━━━━━"
                 tg(msg); already_sent.add(key)
         elif close5 < box_low and close5 < vwap5 and close5 < ema5 and trend != "UPTREND":
             sweep = detect_sweep(df5, box_low, box_high, "PUT")
-            wave3 = detect_wave3(df15, "PUT")
             pattern_ok = (pattern is not None and p_side == "Bearish")
-            score = int(wave3) + int(trend == "DOWNTREND") + int(sweep) + int(is_retest or pattern_ok)
-            if score == 4:
-                level = "👑👑👑 3 PRO 👑👑👑"; qty = "FULL LOT ✅"; target_line = f"🎯 Target {t1} / {t2} / {t3} - FULL LOT\n🧹 Sweep ✅ + Wave3 ✅ + Trend ✅ + Retest/Pattern ✅"; tag = "PRO3"
-            elif score == 3:
-                level = "👑👑 2 PLATINUM 👑👑"; qty = "HALF LOT"; target_line = f"🎯 Target {t1} - HALF LOT\n🧹 Sweep:{sweep} | Wave3:{wave3} | Trend:{trend}"; tag = "PLAT2"
+            score = int(trend == "DOWNTREND") + int(sweep) + int(is_retest or pattern_ok)
+            if score == 3:
+                level = "👑👑👑 3 PRO 👑👑👑"; qty = "FULL LOT ✅"; target_line = f"🎯 Target {t1} / {t2} / {t3} - FULL LOT\n🧹 Sweep ✅ + Trend ✅ + Retest/Pattern ✅"; tag = "PRO3"
+            elif score == 2:
+                level = "👑👑 2 PLATINUM 👑👑"; qty = "HALF LOT"; target_line = f"🎯 Target {t1} - HALF LOT\n🧹 Sweep:{sweep} | Trend:{trend}"; tag = "PLAT2"
             else:
-                print(f"{name} PUT Score {score}/4 - NO TRADE V12"); return
-            key = f"{today}_{name}_PUT_{tag}_V12"
+                print(f"{name} PUT Score {score}/3 - NO TRADE V12"); return
+            key = f"{today}_{name}_PUT_{tag}_{candle_time}"
             if key not in already_sent:
                 strike = get_strike(name, close5)
                 sl = int(box_high + buf)
                 pat_txt = f"🕯️ {pattern} BONUS ✅" if pattern_ok else "🕯️ Pattern - No Bonus"
-                msg = f"{level}\n✨ Option Bond 💥 V12 ✨\n━━━━━━━━━━━━━━━━\n📊 {name} - PUT\n📦 15m BOX: {box_low:.0f} - {box_high:.0f}\n📉 TREND [15m]: {trend} ✅\n🌊 Wave 3: {'✅' if wave3 else '❌'}\n🧹 Liquidity Sweep: {'✅' if sweep else '❌'}\n{pat_txt}\n📍 VWAP [5m]: {vwap5:.0f} - NEECHE ✅\n📍 20 EMA [5m]: {ema5:.0f} - NEECHE ✅\n📈 RSI [5m]: {rsi5:.0f}\n💥 Breakout [5m]: {box_low:.0f} ke NEECHE ✅\n━━━━━━━━━━━━━━━━\n💰 Entry {strike}-PE\n🛑 SL: {sl}\n📦 Qty: {qty}\n✅ Verify Buy Khan Sahab\n{target_line}\n━━━━━━━━━━━━━━━━"
+                msg = f"{level}\n✨ Option Bond 💥 V12 ✨\n━━━━━━━━━━━━━━━━\n📊 {name} - PUT\n📦 15m BOX: {box_low:.0f} - {box_high:.0f}\n📉 TREND [15m]: {trend} ✅\n🧹 Liquidity Sweep: {'✅' if sweep else '❌'}\n{pat_txt}\n📍 VWAP [5m]: {vwap5:.0f} - NEECHE ✅\n📍 20 EMA [5m]: {ema5:.0f} - NEECHE ✅\n📈 RSI [5m]: {rsi5:.0f}\n💥 Breakout [5m]: {box_low:.0f} ke NEECHE ✅\n━━━━━━━━━━━━━━━━\n💰 Entry {strike}-PE\n🛑 SL: {sl}\n📦 Qty: {qty}\n✅ Verify Buy Khan Sahab\n{target_line}\n━━━━━━━━━━━━━━━━"
                 tg(msg); already_sent.add(key)
     except Exception as e: print(name, "check fail", e)
 
-tg("✨ Option Bond 💥 V12 BOT ON ✨\n━━━━━━━━━━━━━━━━\n✅ Khan Sahab V12 Ready Hai\n📦 NIFTY + SENSEX ONLY\n📦 BOX 15m MUST\n📈 TREND 15m MUST\n🌊 WAVE 3 MUST\n🧹 LIQUIDITY SWEEP MUST\n⚡ WORK 5m MUST\n👑 3 PRO = FULL LOT | 👑 2 PLATINUM = HALF LOT\n❌ BOX ke ANDAR koi signal nahi")
+tg("✨ Option Bond 💥 V12 BOT ON ✨\n━━━━━━━━━━━━━━━━\n✅ Khan Sahab V12 Ready Hai\n📦 NIFTY + SENSEX ONLY\n📦 BOX 15m MUST\n📈 TREND 15m MUST\n🧹 LIQUIDITY SWEEP MUST\n⚡ WORK 5m MUST\n👑 3 PRO = FULL LOT | 👑 2 PLATINUM = HALF LOT\n❌ BOX ke ANDAR koi signal nahi")
 print("BOT STARTED", datetime.now(IST))
 start_time = time.time()
 while True:
     now = datetime.now(IST)
-    is_trading_day = (now.weekday() < 5) or (now.date().day == 8 and now.date().month == 11)
-    if is_trading_day and now.hour == 9 and 30 <= now.minute <= 35 and not system_built:
-        build_box(); system_built = True
+    is_trading_day = (now.weekday() < 5)
+    if is_trading_day and ((now.hour == 9 and now.minute >= 15) or (now.hour > 9 and now.hour < 15) or (now.hour == 15 and now.minute <= 15)):
+        if last_box_date != now.date():
+            build_box(); system_built = True
     is_market = is_trading_day and ((now.hour == 9 and now.minute >= 30) or (now.hour > 9 and now.hour < 15) or (now.hour == 15 and now.minute <= 15))
-    if now.date().day == 8 and now.date().month == 11:
-        is_market = is_trading_day and ((now.hour == 9 and now.minute >= 30) or (now.hour > 9 and now.hour < 13) or (now.hour == 13 and now.minute <= 15))
     if is_market and system_built:
         for name, sym in SYMBOLS.items():
             check_one(name, sym); time.sleep(1)
