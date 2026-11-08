@@ -1,24 +1,20 @@
-name: Khan Sahab Strategy
+name: PRO KOHINOOR AUTO
 
 on:
   schedule:
-    - cron: '*/15 3-10 * * 1-5'
+    - cron: '*/5 3-10 * * 1-5'
   workflow_dispatch:
 
 jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-      - run: pip install yfinance requests pytz
-      - run: |
-          if [ -f Khan.py ]; then python Khan.py
-          elif [ -f khan.py ]; then python khan.py
-          else ls -la && echo "File not found" && exit 1
-          fi
+          python-version: '3.11'
+      - run: pip install yfinance pandas numpy requests
+      - run: python main.py
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
