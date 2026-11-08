@@ -45,7 +45,7 @@ def build_box():
     global box_data, touched
     box_data = {}; touched = {}
     today = datetime.now(IST).date()
-    msg = "✨ Option Bond 💥 BOX READY ✨\n━━━━━━━━━━━━━━━━\n⏰ 9:15 - 9:30 BOX VERIFIED ✅\n"
+    msg = "✨ Option Bond 💥 V12 BOX READY ✨\n━━━━━━━━━━━━━━━━\n⏰ 9:15 - 9:30 BOX VERIFIED ✅\n"
     for name, sym in SYMBOLS.items():
         try:
             df = yf.download(sym, period="2d", interval="15m", progress=False, auto_adjust=True)
@@ -61,7 +61,7 @@ def build_box():
             msg += f"📊 {name} BOX [15m]: {bl:.0f} - {bh:.0f}\n"
             print(name, "BOX 15m", bl, bh)
         except Exception as e: print(name, "Box Fail", e)
-    msg += "━━━━━━━━━━━━━━━━\n📦 BOX 15m | 📈 TREND 15m | ⚡ WORK 5m | 🕯️ PATTERN 5m BONUS\n❌ BOX ke ANDAR koi signal nahi"
+    msg += "━━━━━━━━━━━━━━━━\n👑 V12: 15m Wave3 + 5m Box + 1H Trend + Liquidity Sweep\n📦 BOX 15m | 📈 TREND 15m | ⚡ WORK 5m\n❌ BOX ke ANDAR koi signal nahi"
     tg(msg)
 
 def get_strike(name, entry):
@@ -88,6 +88,26 @@ def detect_pattern(df):
     if cl1 > o1 and abs(cl2-o2) < abs(cl1-o1)*0.4 and is_red3 and cl3 < (o1+cl1)/2: return "EVENING STAR", "Bearish"
     if cl1 < o1 and cl2 < o2 and is_red3 and cl2 < cl1 and cl3 < cl2: return "THREE BLACK CROWS", "Bearish"
     return None, None
+
+def detect_sweep(df5, box_low, box_high, direction):
+    if len(df5) < 5: return False
+    recent = df5.tail(6)
+    if direction == "CALL":
+        swept = any(float(r['Low']) < box_low for _, r in recent.iterrows())
+        back_inside = float(df5.iloc[-1]['Close']) > box_low
+        return swept and back_inside
+    else:
+        swept = any(float(r['High']) > box_high for _, r in recent.iterrows())
+        back_inside = float(df5.iloc[-1]['Close']) < box_high
+        return swept and back_inside
+
+def detect_wave3(df15, direction):
+    if len(df15) < 6: return False
+    last = df15.tail(3)
+    if direction == "CALL":
+        return bool(last['Close'].iloc[-1] > last['Close'].iloc[0] and last['High'].iloc[-1] > last['High'].iloc[0])
+    else:
+        return bool(last['Close'].iloc[-1] < last['Close'].iloc[0] and last['Low'].iloc[-1] < last['Low'].iloc[0])
 
 def check_one(name, sym):
     if name not in box_data: return
@@ -132,47 +152,51 @@ def check_one(name, sym):
         pattern, p_side = detect_pattern(df5)
         print(f"{name} [5m] Close:{close5:.0f} VWAP:{vwap5:.0f} EMA:{ema5:.0f} Retest:{is_retest} Pattern:{pattern} Trend:{trend}")
         if box_low <= close5 <= box_high:
-            print(f"{name} BOX ke ANDAR hai - NO SIGNAL - Time Pass")
+            print(f"{name} BOX ke ANDAR hai - NO SIGNAL")
             return
+        if name == "NIFTY":
+            t1, t2, t3, buf = "+100", "+150", "+200", 10
+        else:
+            t1, t2, t3, buf = "+200", "+300", "+400", 20
         if close5 > box_high and close5 > vwap5 and close5 > ema5 and trend != "DOWNTREND":
+            sweep = detect_sweep(df5, box_low, box_high, "CALL")
+            wave3 = detect_wave3(df15, "CALL")
             pattern_ok = (pattern is not None and p_side == "Bullish")
-            pat_txt = f"🕯️ {pattern} [5m] BONUS ✅" if pattern_ok else "🕯️ Pattern - No Bonus"
-            trend_txt = f"📈 TREND [15m]: {trend} ✅"
-            if is_retest and pattern_ok:
-                level = "👑👑 Platinum 👑👑"; target_line = "🎯 Target -100+ Platinum ✅\n🔁 Retest + Pattern Dono ✅"; tag = "PLAT_BOTH"
-            elif is_retest or pattern_ok:
-                level = "👑👑 Platinum 👑👑"
-                if is_retest: target_line = "🎯 Target -100+ Platinum ✅\n🔁 Retest Karke Breakout ✅"
-                else: target_line = "🎯 Target -100+ Platinum ✅\n🕯️ Pattern Bonus ✅"
-                tag = "PLAT"
+            score = int(wave3) + int(trend == "UPTREND") + int(sweep) + int(is_retest or pattern_ok)
+            if score == 4:
+                level = "👑👑👑 3 PRO 👑👑👑"; qty = "FULL LOT ✅"; target_line = f"🎯 Target {t1} / {t2} / {t3} - FULL LOT\n🧹 Sweep ✅ + Wave3 ✅ + Trend ✅ + Retest/Pattern ✅"; tag = "PRO3"
+            elif score == 3:
+                level = "👑👑 2 PLATINUM 👑👑"; qty = "HALF LOT"; target_line = f"🎯 Target {t1} - HALF LOT\n🧹 Sweep:{sweep} | Wave3:{wave3} | Trend:{trend}"; tag = "PLAT2"
             else:
-                level = "💎💎 Diamond 💎💎"; target_line = "🎯 Target -60+ Diamond ✅\n💥 Direct Breakout ✅"; tag = "DIA"
-            key = f"{today}_{name}_CALL_{tag}_5m"
+                print(f"{name} CALL Score {score}/4 - NO TRADE V12"); return
+            key = f"{today}_{name}_CALL_{tag}_V12"
             if key not in already_sent:
                 strike = get_strike(name, close5)
-                msg = f"{level}\n✨ Option Bond 💥 ✨\n━━━━━━━━━━━━━━━━\n📊 {name} - CALL\n📦 15m BOX: {box_low:.0f} - {box_high:.0f}\n{trend_txt}\n{pat_txt}\n📍 VWAP [5m]: {vwap5:.0f} - UPAR ✅\n📍 20 EMA [5m]: {ema5:.0f} - UPAR ✅\n📈 RSI [5m]: {rsi5:.0f}\n💥 Breakout [5m]: {box_high:.0f} ke UPAR ✅\n━━━━━━━━━━━━━━━━\n💰 Entry {strike}-CE\n✅ Verify Buy Khan Sahab\n{target_line}\n━━━━━━━━━━━━━━━━"
+                sl = int(box_low - buf)
+                pat_txt = f"🕯️ {pattern} BONUS ✅" if pattern_ok else "🕯️ Pattern - No Bonus"
+                msg = f"{level}\n✨ Option Bond 💥 V12 ✨\n━━━━━━━━━━━━━━━━\n📊 {name} - CALL\n📦 15m BOX: {box_low:.0f} - {box_high:.0f}\n📈 TREND [15m]: {trend} ✅\n🌊 Wave 3: {'✅' if wave3 else '❌'}\n🧹 Liquidity Sweep: {'✅' if sweep else '❌'}\n{pat_txt}\n📍 VWAP [5m]: {vwap5:.0f} - UPAR ✅\n📍 20 EMA [5m]: {ema5:.0f} - UPAR ✅\n📈 RSI [5m]: {rsi5:.0f}\n💥 Breakout [5m]: {box_high:.0f} ke UPAR ✅\n━━━━━━━━━━━━━━━━\n💰 Entry {strike}-CE\n🛑 SL: {sl}\n📦 Qty: {qty}\n✅ Verify Buy Khan Sahab\n{target_line}\n━━━━━━━━━━━━━━━━"
                 tg(msg); already_sent.add(key)
         elif close5 < box_low and close5 < vwap5 and close5 < ema5 and trend != "UPTREND":
+            sweep = detect_sweep(df5, box_low, box_high, "PUT")
+            wave3 = detect_wave3(df15, "PUT")
             pattern_ok = (pattern is not None and p_side == "Bearish")
-            pat_txt = f"🕯️ {pattern} [5m] BONUS ✅" if pattern_ok else "🕯️ Pattern - No Bonus"
-            trend_txt = f"📉 TREND [15m]: {trend} ✅"
-            if is_retest and pattern_ok:
-                level = "👑👑 Platinum 👑👑"; target_line = "🎯 Target -100+ Platinum ✅\n🔁 Retest + Pattern Dono ✅"; tag = "PLAT_BOTH"
-            elif is_retest or pattern_ok:
-                level = "👑👑 Platinum 👑👑"
-                if is_retest: target_line = "🎯 Target -100+ Platinum ✅\n🔁 Retest Karke Breakout ✅"
-                else: target_line = "🎯 Target -100+ Platinum ✅\n🕯️ Pattern Bonus ✅"
-                tag = "PLAT"
+            score = int(wave3) + int(trend == "DOWNTREND") + int(sweep) + int(is_retest or pattern_ok)
+            if score == 4:
+                level = "👑👑👑 3 PRO 👑👑👑"; qty = "FULL LOT ✅"; target_line = f"🎯 Target {t1} / {t2} / {t3} - FULL LOT\n🧹 Sweep ✅ + Wave3 ✅ + Trend ✅ + Retest/Pattern ✅"; tag = "PRO3"
+            elif score == 3:
+                level = "👑👑 2 PLATINUM 👑👑"; qty = "HALF LOT"; target_line = f"🎯 Target {t1} - HALF LOT\n🧹 Sweep:{sweep} | Wave3:{wave3} | Trend:{trend}"; tag = "PLAT2"
             else:
-                level = "💎💎 Diamond 💎💎"; target_line = "🎯 Target -60+ Diamond ✅\n💥 Direct Breakout ✅"; tag = "DIA"
-            key = f"{today}_{name}_PUT_{tag}_5m"
+                print(f"{name} PUT Score {score}/4 - NO TRADE V12"); return
+            key = f"{today}_{name}_PUT_{tag}_V12"
             if key not in already_sent:
                 strike = get_strike(name, close5)
-                msg = f"{level}\n✨ Option Bond 💥 ✨\n━━━━━━━━━━━━━━━━\n📊 {name} - PUT\n📦 15m BOX: {box_low:.0f} - {box_high:.0f}\n{trend_txt}\n{pat_txt}\n📍 VWAP [5m]: {vwap5:.0f} - NEECHE ✅\n📍 20 EMA [5m]: {ema5:.0f} - NEECHE ✅\n📈 RSI [5m]: {rsi5:.0f}\n💥 Breakout [5m]: {box_low:.0f} ke NEECHE ✅\n━━━━━━━━━━━━━━━━\n💰 Entry {strike}-PE\n✅ Verify Buy Khan Sahab\n{target_line}\n━━━━━━━━━━━━━━━━"
+                sl = int(box_high + buf)
+                pat_txt = f"🕯️ {pattern} BONUS ✅" if pattern_ok else "🕯️ Pattern - No Bonus"
+                msg = f"{level}\n✨ Option Bond 💥 V12 ✨\n━━━━━━━━━━━━━━━━\n📊 {name} - PUT\n📦 15m BOX: {box_low:.0f} - {box_high:.0f}\n📉 TREND [15m]: {trend} ✅\n🌊 Wave 3: {'✅' if wave3 else '❌'}\n🧹 Liquidity Sweep: {'✅' if sweep else '❌'}\n{pat_txt}\n📍 VWAP [5m]: {vwap5:.0f} - NEECHE ✅\n📍 20 EMA [5m]: {ema5:.0f} - NEECHE ✅\n📈 RSI [5m]: {rsi5:.0f}\n💥 Breakout [5m]: {box_low:.0f} ke NEECHE ✅\n━━━━━━━━━━━━━━━━\n💰 Entry {strike}-PE\n🛑 SL: {sl}\n📦 Qty: {qty}\n✅ Verify Buy Khan Sahab\n{target_line}\n━━━━━━━━━━━━━━━━"
                 tg(msg); already_sent.add(key)
     except Exception as e: print(name, "check fail", e)
 
-tg("✨ Option Bond 💥 BOT ON ✨\n━━━━━━━━━━━━━━━━\n✅ Khan Sahab BOT Ready Hai\n📦 BOX 15m MUST\n📈 TREND 15m MUST\n⚡ WORK 5m MUST\n🕯️ PATTERN 5m BONUS\n❌ BOX ke ANDAR koi signal nahi")
+tg("✨ Option Bond 💥 V12 BOT ON ✨\n━━━━━━━━━━━━━━━━\n✅ Khan Sahab V12 Ready Hai\n📦 NIFTY + SENSEX ONLY\n📦 BOX 15m MUST\n📈 TREND 15m MUST\n🌊 WAVE 3 MUST\n🧹 LIQUIDITY SWEEP MUST\n⚡ WORK 5m MUST\n👑 3 PRO = FULL LOT | 👑 2 PLATINUM = HALF LOT\n❌ BOX ke ANDAR koi signal nahi")
 print("BOT STARTED", datetime.now(IST))
 start_time = time.time()
 while True:
