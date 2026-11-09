@@ -16,7 +16,8 @@ SYMBOLS = [
     "BAJFINANCE.NS","NTPC.NS","POWERGRID.NS","HINDALCO.NS","VEDL.NS"
 ]
 
-QTY = 500
+QTY_FULL = 500
+QTY_HALF = 250
 SENT_FILE = "sent.txt"
 
 def load_sent():
@@ -29,10 +30,11 @@ def save_sent(key):
     with open(SENT_FILE, "a") as f:
         f.write(key + "\n")
 
-def send_telegram(msg, key):
-    sent = load_sent()
-    if key in sent:
-        return False
+def send_telegram(msg, key=None):
+    if key:
+        sent = load_sent()
+        if key in sent:
+            return False
     if not BOT_TOKEN or not CHAT_ID:
         print(msg)
         return False
@@ -40,7 +42,8 @@ def send_telegram(msg, key):
     try:
         r = requests.post(url, json={"chat_id": CHAT_ID, "text": msg}, timeout=10)
         if r.status_code == 200:
-            save_sent(key)
+            if key:
+                save_sent(key)
             return True
     except Exception as e:
         print("Telegram Error:", e)
@@ -86,8 +89,7 @@ def get_nifty_trend_15m():
 
 def check_wave3_15m(df15):
     try:
-        if len(df15) < 12:
-            return None
+        if len(df15) < 12: return None
         closes = df15['Close'].values
         highs = df15['High'].values
         lows = df15['Low'].values
@@ -112,11 +114,14 @@ def check_wave3_15m(df15):
     except:
         return None
 
+SIGNAL_COUNT = 0
+GAP_LIST = []
+
 def check_stock(symbol, nifty_trend):
+    global SIGNAL_COUNT
     try:
         df5 = yf.download(symbol, period="5d", interval="5m", progress=False, auto_adjust=False)
-        if df5.empty or len(df5) < 30:
-            return
+        if df5.empty or len(df5) < 30: return
         df5 = clean_df(df5)
         all_dates = sorted(df5['Datetime'].dt.date.unique())
         today = all_dates[-1]
@@ -125,8 +130,7 @@ def check_stock(symbol, nifty_trend):
             today = all_dates[-2]
             today_df = df5[df5['Datetime'].dt.date == today].copy()
         prev_df = df5[df5['Datetime'].dt.date < today]
-        if today_df.empty or prev_df.empty or len(today_df) < 10:
-            return
+        if today_df.empty or prev_df.empty or len(today_df) < 10: return
         df15 = yf.download(symbol, period="5d", interval="15m", progress=False, auto_adjust=False)
         if df15.empty: return
         df15 = clean_df(df15)
@@ -139,12 +143,6 @@ def check_stock(symbol, nifty_trend):
         trend_15_up = float(last_15['Close']) > float(last_15['VWAP']) and float(last_15['Close']) > float(last_15['EMA20'])
         trend_15_down = float(last_15['Close']) < float(last_15['VWAP']) and float(last_15['Close']) < float(last_15['EMA20'])
         wave = check_wave3_15m(df15_today)
-        if wave is None:
-            return
-        if wave == "UP" and not (trend_15_up and nifty_trend == "UP"):
-            return
-        if wave == "DOWN" and not (trend_15_down and nifty_trend == "DOWN"):
-            return
         prev_close = float(prev_df['Close'].iloc[-1])
         day_open = float(today_df['Open'].iloc[0])
         gap = (day_open - prev_close) / prev_close * 100
@@ -153,6 +151,14 @@ def check_stock(symbol, nifty_trend):
         box_high = float(box_df['High'].max())
         box_low = float(box_df['Low'].min())
         if box_high <= box_low: return
+        clean = symbol.replace(".NS","")
+        GAP_LIST.append(gap)
+        if abs(gap) >= 2.0:
+            qty = QTY_FULL
+            qty_label = "FULL QTY - 500"
+        else:
+            qty = QTY_HALF
+            qty_label = "AADHI QTY - 250"
         today_df['EMA20'] = today_df['Close'].ewm(span=20, adjust=False).mean()
         today_df['VWAP'] = calc_vwap(today_df)
         today_df['RSI'] = calc_rsi(today_df['Close'], 14)
@@ -172,7 +178,6 @@ def check_stock(symbol, nifty_trend):
         vol = float(last['Volume'])
         vol_avg = float(last['VolAvg']) if not np.isnan(last['VolAvg']) else vol
         candle_key = str(last['Datetime'].strftime("%Y-%m-%d_%H:%M"))
-        clean = symbol.replace(".NS","")
         vwap_dist = abs(close - vwap) / vwap * 100
         if (vwap_dist < 0.10) and (45 <= rsi <= 55):
             return
@@ -193,40 +198,76 @@ def check_stock(symbol, nifty_trend):
         min_risk = close * 0.002
         is_pro_bull = (wave == "UP" and trend_15_up and nifty_trend == "UP"
                        and abs(gap) >= 2.0 and vol_ratio >= 2.0 and rsi >= 65 and touched_call
-                       and close > box_high and close > vwap and close > ema20
-                       and call_break > 0.2)
+                       and close > box_high and close > vwap and close > ema20 and call_break > 0.2)
         is_pro_bear = (wave == "DOWN" and trend_15_down and nifty_trend == "DOWN"
                        and abs(gap) >= 2.0 and vol_ratio >= 2.0 and rsi <= 35 and touched_put
-                       and close < box_low and close < vwap and close < ema20
-                       and put_break > 0.2)
+                       and close < box_low and close < vwap and close < ema20 and put_break > 0.2)
+        went_below = float(after_df['Low'].min()) < box_low
+        went_above = float(after_df['High'].max()) > box_high
+        is_reclaim_bull = (went_below and close > box_low and close < box_high and close > vwap and close > ema20 and vol_ratio >= 1.5 and rsi > 50 and nifty_trend in ["UP", "NEUTRAL"])
+        is_reclaim_bear = (went_above and close < box_high and close > box_low and close < vwap and close < ema20 and vol_ratio >= 1.5 and rsi < 50 and nifty_trend in ["DOWN", "NEUTRAL"])
         if is_pro_bull:
+            SIGNAL_COUNT += 1
             sl = prev_low
             risk = close - sl
             if risk < min_risk: risk = min_risk; sl = close - risk
-            t1 = close + (risk * 1)
-            t2 = close + (risk * 2)
+            t1 = close + (risk * 1); t2 = close + (risk * 2)
             msg = f"""👑 PRO KOHINOOR 👑
-🟢 FUTURE: {clean} - LONG
+🟢 STOCK OPTION: {clean} - CALL CE
 📍 NIFTY 15 MIN: UP ⬆️ - VWAP Ke Upar
-💰 BUY FUT @ {close:.2f} | Qty: {QTY} Share - FULL LOT
+📦 BOX: {box_low:.2f} - {box_high:.2f} | BREAKOUT | Gap {gap:+.2f}%
+💰 BUY CE @ {close:.2f} ke aas paas | Qty: {qty} Share - {qty_label}
 🛑 SL @ {sl:.2f} - Prev Candle Low
 🎯 T1 @ {t1:.2f} - 50% BOOK
 🎯 T2 @ {t2:.2f} - Baaki | SL to Entry"""
             send_telegram(msg, f"{candle_key}_{clean}_PRO_KOHINOOR_LONG")
         elif is_pro_bear:
+            SIGNAL_COUNT += 1
             sl = prev_high
             risk = sl - close
             if risk < min_risk: risk = min_risk; sl = close + risk
-            t1 = close - (risk * 1)
-            t2 = close - (risk * 2)
+            t1 = close - (risk * 1); t2 = close - (risk * 2)
             msg = f"""👑 PRO KOHINOOR 👑
-🔴 FUTURE: {clean} - SHORT
+🔴 STOCK OPTION: {clean} - PUT PE
 📍 NIFTY 15 MIN: DOWN ⬇️ - VWAP Ke Neeche
-💰 SELL FUT @ {close:.2f} | Qty: {QTY} Share - FULL LOT
+📦 BOX: {box_low:.2f} - {box_high:.2f} | BREAKDOWN | Gap {gap:+.2f}%
+💰 BUY PE @ {close:.2f} ke aas paas | Qty: {qty} Share - {qty_label}
 🛑 SL @ {sl:.2f} - Prev Candle High
 🎯 T1 @ {t1:.2f} - 50% BOOK
 🎯 T2 @ {t2:.2f} - Baaki | SL to Entry"""
             send_telegram(msg, f"{candle_key}_{clean}_PRO_KOHINOOR_SHORT")
+        elif is_reclaim_bull:
+            SIGNAL_COUNT += 1
+            sl = prev_low
+            risk = close - sl
+            if risk < min_risk: risk = min_risk; sl = close - risk
+            t1 = close + (risk * 1); t2 = close + (risk * 2)
+            msg = f"""👑 PRO KOHINOOR - RECLAIM 👑
+🟢 STOCK OPTION: {clean} - CALL CE
+📍 NIFTY 15 MIN: {nifty_trend} | BOX RECLAIM
+📦 BOX: {box_low:.2f} - {box_high:.2f} | Neeche gaya, wapas andar aaya | Gap {gap:+.2f}%
+📊 Volume: {vol_ratio:.1f}x | RSI: {rsi:.0f} | Confirm Candle 5m
+💰 BUY CE @ {close:.2f} ke aas paas | Qty: {qty} Share - {qty_label}
+🛑 SL @ {sl:.2f} - Prev Candle Low
+🎯 T1 @ {t1:.2f} - 50% BOOK
+🎯 T2 @ {t2:.2f} - Baaki | SL to Entry"""
+            send_telegram(msg, f"{candle_key}_{clean}_RECLAIM_LONG")
+        elif is_reclaim_bear:
+            SIGNAL_COUNT += 1
+            sl = prev_high
+            risk = sl - close
+            if risk < min_risk: risk = min_risk; sl = close + risk
+            t1 = close - (risk * 1); t2 = close - (risk * 2)
+            msg = f"""👑 PRO KOHINOOR - RECLAIM 👑
+🔴 STOCK OPTION: {clean} - PUT PE
+📍 NIFTY 15 MIN: {nifty_trend} | BOX RECLAIM
+📦 BOX: {box_low:.2f} - {box_high:.2f} | Upar gaya, wapas andar aaya | Gap {gap:+.2f}%
+📊 Volume: {vol_ratio:.1f}x | RSI: {rsi:.0f} | Confirm Candle 5m
+💰 BUY PE @ {close:.2f} ke aas paas | Qty: {qty} Share - {qty_label}
+🛑 SL @ {sl:.2f} - Prev Candle High
+🎯 T1 @ {t1:.2f} - 50% BOOK
+🎯 T2 @ {t2:.2f} - Baaki | SL to Entry"""
+            send_telegram(msg, f"{candle_key}_{clean}_RECLAIM_SHORT")
     except Exception as e:
         print(f"Error {symbol}: {e}")
 
@@ -236,4 +277,26 @@ if __name__ == "__main__":
     print("NIFTY 15 MIN Trend:", nifty)
     for sym in SYMBOLS:
         check_stock(sym, nifty)
-    print("Done")
+    print("Done - Total Signal:", SIGNAL_COUNT)
+    now_time = datetime.now().time()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    if time(9,30) <= now_time <= time(9,40) and len(GAP_LIST) > 0:
+        total = len(GAP_LIST)
+        gap_up = sum(1 for g in GAP_LIST if g >= 2.0)
+        gap_down = sum(1 for g in GAP_LIST if g <= -2.0)
+        gap_big = gap_up + gap_down
+        no_gap = total - gap_big
+        box_msg = f"""📦 25 STOCK KA BOX BAN GAYA ✅
+📍 NIFTY 15M: {nifty}
+
+🔼 2% se Upar Gap Up: {gap_up} Share
+🔽 2% se Neeche Gap Down: {gap_down} Share
+➖ Bina Gap ke: {no_gap} Share
+
+Total: {total} Share
+Ab Breakout / Reclaim ka wait hai.
+Trade banegi to Share-wise alag se Message aayega."""
+        send_telegram(box_msg, f"{today_str}_ALL_BOX")
+    now_hm = datetime.now().strftime("%H:%M")
+    if SIGNAL_COUNT == 0 and now_hm in ["11:30", "11:35", "13:30", "13:35"]:
+        send_telegram(f"ℹ️ PRO KOHINOOR Check Done - {now_hm}\nNIFTY 15M: {nifty}\nAaj abhi tak koi PRO KOHINOOR Setup Confirm nahi hua.", key=None)
