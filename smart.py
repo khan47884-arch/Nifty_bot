@@ -1,4 +1,4 @@
-# V13 BACKTEST V3 - 60 DAYS ONLY - Yahoo 5m/15m 60 din se jyada nahi deta
+# V13 BACKTEST V4 - TREND FIX - VWAP ONLY
 import yfinance as yf
 import pandas as pd
 SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
@@ -92,7 +92,7 @@ def detect_main(df5):
     if cl1>o1 and abs(cl2-o2)<abs(cl1-o1)*0.4 and cl3<o3 and cl3<(o1+cl1)/2: return "EVENING STAR", "Bearish"
     return None,None
 all_trades = []
-dbg = {"trend_ok":0, "pattern_ok":0, "vol_fail":0, "break_fail":0}
+dbg = {"days":0, "box_fail":0, "trend_ok":0, "pattern_ok":0, "vol_fail":0, "break_fail":0}
 for name, sym in SYMBOLS.items():
     print(f"Loading {name} 60d...")
     df15 = yf.download(sym, period="60d", interval="15m", progress=False, auto_adjust=True)
@@ -106,12 +106,19 @@ for name, sym in SYMBOLS.items():
     df5 = clean_df(df5)
     df5["RSI"]=calc_rsi(df5["Close"])
     print(f"{name} 15m rows {len(df15)} 5m rows {len(df5)}")
+    if len(df15)>0:
+        print(f"SAMPLE 15m {df15['Dt'].iloc[0]} Close {df15['Close'].iloc[0]} VWAP {df15['VWAP'].iloc[0]} EMA20 {df15['EMA20'].iloc[0]}")
+        print(f"SAMPLE 5m {df5['Dt'].iloc[0]} Close {df5['Close'].iloc[0]} Vol {df5['Volume'].iloc[0]}")
     for date, day15 in df15.groupby(df15['Dt'].dt.date):
+        dbg["days"]+=1
         day5 = df5[df5['Dt'].dt.date==date].reset_index(drop=True)
         if len(day5)<25: continue
         box = day15[(day15['Dt'].dt.hour==9) & (day15['Dt'].dt.minute==15)]
-        if box.empty: continue
-        box_high=float(box["High"].iloc[0]); box_low=float(box["Low"].iloc[0])
+        if box.empty:
+            dbg["box_fail"]+=1
+            box_high=float(day15["High"].iloc[0]); box_low=float(day15["Low"].iloc[0])
+        else:
+            box_high=float(box["High"].iloc[0]); box_low=float(box["Low"].iloc[0])
         for i in range(22, len(day5)-1):
             curr = day5.iloc[i]; prev = day5.iloc[i-1]; nxt = day5.iloc[i+1]
             if curr['Dt'].hour==9 and curr['Dt'].minute<30: continue
@@ -120,15 +127,15 @@ for name, sym in SYMBOLS.items():
             if c15_row.empty: continue
             last15=c15_row.iloc[-1]
             c15=float(last15['Close']); v15=float(last15['VWAP']); e20=float(last15['EMA20']); e50=float(last15['EMA50'])
-            if c15>v15 and c15>e20 and e20>e50: trend="UPTREND"
-            elif c15<v15 and c15<e20 and e20<e50: trend="DOWNTREND"
+            if c15>v15: trend="UPTREND"
+            elif c15<v15: trend="DOWNTREND"
             else: continue
             dbg["trend_ok"]+=1
             pat, side = detect_main(day5.iloc[i-2:i+1])
             if pat is None: pat, side = detect_bonus(day5.iloc[i-19:i+1])
             if pat is None: continue
             dbg["pattern_ok"]+=1
-            vol_ok = float(curr['Volume']) >= 1.5*float(prev['Volume']) if float(prev['Volume'])>0 else False
+            vol_ok = float(curr['Volume']) >= 1.2*float(prev['Volume']) if float(prev['Volume'])>0 else False
             if not vol_ok:
                 dbg["vol_fail"]+=1
                 continue
@@ -155,9 +162,9 @@ for name, sym in SYMBOLS.items():
             else:
                 dbg["break_fail"]+=1
                 continue
-print("========== V13 V3 - 60 DIN BACKTEST ==========")
+print("========== V13 V4 - 60 DIN BACKTEST ==========")
 for t in all_trades: print(t)
-print(f"DEBUG Trend OK: {dbg['trend_ok']} Pattern OK: {dbg['pattern_ok']} Vol Fail 1.5x: {dbg['vol_fail']} Break Fail: {dbg['break_fail']}")
+print(f"DEBUG Days: {dbg['days']} BoxFail: {dbg['box_fail']} Trend OK: {dbg['trend_ok']} Pattern OK: {dbg['pattern_ok']} Vol Fail 1.2x: {dbg['vol_fail']} Break Fail: {dbg['break_fail']}")
 n_rs = sum([x[10] for x in all_trades if x[2]=="NIFTY"])
 s_rs = sum([x[10] for x in all_trades if x[2]=="SENSEX"])
 win = sum([1 for x in all_trades if x[9]=="TARGET"])
