@@ -1,125 +1,121 @@
-# V13 BACKTEST - 60 DIN - YAHOO 5m LIMIT FIX - FINAL
-import yfinance as yf, pandas as pd, numpy as np
-import matplotlib.pyplot as plt
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import requests, os, time
 from datetime import datetime
-import warnings; warnings.filterwarnings('ignore')
-print("60 Din ka Data Download Ho Raha Hai... 1 Min Ruko")
+import pytz
+IST = pytz.timezone('Asia/Kolkata')
+BOT = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT = os.getenv("TELEGRAM_CHAT_ID")
+def tg(m):
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=20)
+        print("TG:", r.status_code)
+    except Exception as e: print("TG Fail", e)
 SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
 LOT = {"NIFTY": 65, "SENSEX": 20}
-TARGET_PTS = {"NIFTY": 100, "SENSEX": 200}
-MAX_PER_BOX = 3
-def clean(df):
+already_sent = set()
+daily_trades = []
+exit_sent = False
+def clean_df(df):
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     df = df.reset_index()
     df['Dt'] = pd.to_datetime(df.iloc[:,0])
     try: df['Dt'] = df['Dt'].dt.tz_convert('Asia/Kolkata').dt.tz_localize(None)
     except: pass
     return df
-def gv(c): return float(c["Open"]), float(c["Close"]), float(c["High"]), float(c["Low"])
-def is_hammer(c):
-    o,cl,h,l=gv(c); b=abs(cl-o); r=h-l
-    return r!=0 and cl>o and (min(o,cl)-l)>b*2 and (h-max(o,cl))<b*0.5
-def is_inv_hammer(c):
-    o,cl,h,l=gv(c); b=abs(cl-o); r=h-l
-    return r!=0 and cl>o and (h-max(o,cl))>b*2 and (min(o,cl)-l)<b*0.5
-def is_dragonfly(c):
-    o,cl,h,l=gv(c); b=abs(cl-o); r=h-l
-    return r!=0 and b<r*0.1 and (min(o,cl)-l)>r*0.7
-def is_shooting(c):
-    o,cl,h,l=gv(c); b=abs(cl-o); r=h-l
-    return r!=0 and cl<o and (h-max(o,cl))>b*2 and (min(o,cl)-l)<b*0.5
+def calc_vwap(df):
+    tp = (df['High'] + df['Low'] + df['Close']) / 3
+    return (tp * df['Volume']).cumsum() / df['Volume'].cumsum()
+def calc_supertrend(df, period=10, mult=3):
+    df = df.copy()
+    df['TR'] = np.maximum(df['High'] - df['Low'], np.maximum(abs(df['High'] - df['Close'].shift(1)), abs(df['Low'] - df['Close'].shift(1))))
+    df['ATR'] = df['TR'].rolling(window=period).mean()
+    df['BU'] = (df['High'] + df['Low']) / 2 + (mult * df['ATR'])
+    df['BL'] = (df['High'] + df['Low']) / 2 - (mult * df['ATR'])
+    fu = [0]*len(df); fl = [0]*len(df); tr = [1]*len(df)
+    for i in range(1, len(df)):
+        fu[i] = df['BU'].iloc[i] if df['Close'].iloc[i-1] > fu[i-1] or fu[i-1]==0 else min(df['BU'].iloc[i], fu[i-1])
+        fl[i] = df['BL'].iloc[i] if df['Close'].iloc[i-1] < fl[i-1] or fl[i-1]==0 else max(df['BL'].iloc[i], fl[i-1])
+        if tr[i-1]==1 and df['Close'].iloc[i] < fl[i]: tr[i] = -1
+        elif tr[i-1]==-1 and df['Close'].iloc[i] > fu[i]: tr[i] = 1
+        else: tr[i] = tr[i-1]
+    return tr
+def get_15m_levels(sym):
+    try:
+        today = datetime.now(IST).date()
+        df15 = yf.download(sym, period="2d", interval="15m", progress=False, auto_adjust=True)
+        df15 = clean_df(df15); df15 = df15[df15['Dt'].dt.date==today]
+        if len(df15) < 1: return None, None
+        first = df15.iloc[0]
+        return float(first['High']), float(first['Low'])
+    except Exception as e:
+        print("15m Level Fail", e)
+        return None, None
 def get_strike(name, entry):
     return int(round(entry/50)*50) if name=="NIFTY" else int(round(entry/100)*100)
-all_trades = []
-for name, sym in SYMBOLS.items():
-    print(f"\n{name} Ka Backtest Chal Raha Hai...")
-    df15 = clean(yf.download(sym, period="60d", interval="15m", progress=False, auto_adjust=True))
-    df5 = clean(yf.download(sym, period="60d", interval="5m", progress=False, auto_adjust=True))
-    print(f"{name} 15m rows={len(df15)} 5m rows={len(df5)}")
-    days = sorted(df5['Dt'].dt.date.unique())
-    for day in days:
-        d15 = df15[df15['Dt'].dt.date==day]
-        d5 = df5[df5['Dt'].dt.date==day].reset_index(drop=True)
-        if len(d15)<5 or len(d5)<22: continue
-        boxes = []
-        b1 = d15[(d15['Dt'].dt.hour==9)&(d15['Dt'].dt.minute==15)]
-        if not b1.empty: boxes.append(("BOX1", float(b1["High"].iloc[0]), float(b1["Low"].iloc[0])))
-        b2 = d15[(d15['Dt'].dt.hour==11)&(d15['Dt'].dt.minute==30)]
-        if not b2.empty: boxes.append(("BOX2", float(b2["High"].iloc[0]), float(b2["Low"].iloc[0])))
-        for box_name, bh, bl in boxes:
-            if box_name=="BOX1":
-                candles = d5[(d5['Dt'].dt.hour==9)&(d5['Dt'].dt.minute>=30) | (d5['Dt'].dt.hour==10) | (d5['Dt'].dt.hour==11)&(d5['Dt'].dt.minute<30)]
-            else:
-                candles = d5[(d5['Dt'].dt.hour==11)&(d5['Dt'].dt.minute>=30) | (d5['Dt'].dt.hour>=12)]
-            candles = candles.reset_index(drop=True)
-            if len(candles)<5: continue
-            cnt = 0
-            i = 2
-            while i < len(candles)-1 and cnt < MAX_PER_BOX:
-                prev = candles.iloc[i-1]; curr = candles.iloc[i]; nxt = candles.iloc[i+1]
-                t15 = d15[d15['Dt']<=nxt['Dt']]
-                if len(t15)<3:
-                    i+=1; continue
-                last15 = t15.iloc[-1]; prev15 = t15.iloc[-2]
-                c15=float(last15['Close']); ph15=float(prev15['High']); pl15=float(prev15['Low'])
-                if c15>ph15: trend="UPTREND"
-                elif c15<pl15: trend="DOWNTREND"
-                else:
-                    i+=1; continue
-                pat=None; side=None
-                if is_hammer(nxt): pat="HAMMER"; side="Bullish"
-                elif is_inv_hammer(nxt): pat="INVERTED HAMMER"; side="Bullish"
-                elif is_dragonfly(nxt): pat="DRAGONFLY"; side="Bullish"
-                elif is_shooting(nxt): pat="SHOOTING STAR"; side="Bearish"
-                if pat is None:
-                    i+=1; continue
-                pv=float(prev['Volume']); cv=float(curr['Volume'])
-                if pv>0 and cv>0 and cv < 2*pv:
-                    i+=1; continue
-                entry=float(nxt['Close']); strike=get_strike(name, entry)
-                tgt_pts=TARGET_PTS[name]
-                if trend=="UPTREND" and side=="Bullish" and float(nxt['High'])>float(prev['High']):
-                    sl=float(prev['Low']); target=entry+tgt_pts; typ="CALL"
-                elif trend=="DOWNTREND" and side=="Bearish" and float(nxt['Low'])<float(prev['Low']):
-                    sl=float(prev['High']); target=entry-tgt_pts; typ="PUT"
-                else:
-                    i+=1; continue
-                result="OPEN"; pnl_pts=0; exit_idx=None
-                for j in range(i+2, len(candles)):
-                    fut=candles.iloc[j]
-                    if typ=="CALL":
-                        if float(fut['Low'])<=sl: result="SL"; pnl_pts=-(entry-sl); exit_idx=j; break
-                        if float(fut['High'])>=target: result="TARGET"; pnl_pts=tgt_pts; exit_idx=j; break
-                    else:
-                        if float(fut['High'])>=sl: result="SL"; pnl_pts=-(sl-entry); exit_idx=j; break
-                        if float(fut['Low'])<=target: result="TARGET"; pnl_pts=tgt_pts; exit_idx=j; break
-                if result=="OPEN":
-                    break
-                pnl_rs = pnl_pts * LOT[name] if result=="TARGET" else -abs(pnl_pts)*LOT[name]
-                all_trades.append({"Date": day, "Month": pd.to_datetime(day).strftime("%Y-%m"), "Symbol": name, "Type": typ, "Box": box_name, "TradeNo": cnt+1, "Pattern": pat, "Strike": strike, "Entry": round(entry), "SL": round(sl), "Target": round(target), "Result": result, "Pts": round(pnl_pts,1), "Rs": round(pnl_rs)})
-                cnt+=1
-                i = exit_idx + 1
-df = pd.DataFrame(all_trades)
-if df.empty:
-    print("Koi Trade Nahi Bana - Data Check Karo")
-else:
-    print("V13 BACKTEST - 60 DIN - PURA HISAB")
-    total=len(df); wins=(df['Result']=="TARGET").sum(); losses=(df['Result']=="SL").sum()
-    win_pct=wins/total*100 if total else 0
-    total_rs=df['Rs'].sum()
-    print(f"Total Trade: {total} | Win: {wins} | Loss: {losses} | Win %: {win_pct:.1f}%")
-    print(f"TOTAL P&L (1 Lot Each): Rs {total_rs:,.0f}")
-    print(df.groupby("Month").agg(Trade=("Rs","count"), Win=("Result", lambda x:(x=="TARGET").sum()), Rs=("Rs","sum")))
-    print(df.groupby("Box").agg(Trade=("Rs","count"), Win=("Result", lambda x:(x=="TARGET").sum()), Rs=("Rs","sum")))
-    print(df.groupby("TradeNo").agg(Trade=("Rs","count"), Win=("Result", lambda x:(x=="TARGET").sum()), Rs=("Rs","sum")))
-    print(df.groupby("Symbol").agg(Trade=("Rs","count"), Win=("Result", lambda x:(x=="TARGET").sum()), Rs=("Rs","sum")))
-    print(df.groupby("Type").agg(Trade=("Rs","count"), Win=("Result", lambda x:(x=="TARGET").sum()), Rs=("Rs","sum")))
-    print(df.tail(20).to_string(index=False))
-    df['Cum'] = df['Rs'].cumsum()
-    plt.figure(figsize=(12,6))
-    plt.plot(df['Cum'].values, linewidth=2)
-    plt.title(f"V13 Backtest 60 Din - Total Rs {total_rs:,.0f} | Win {win_pct:.1f}% | Trades {total}", fontsize=13, weight='bold')
-    plt.xlabel("Trade Number"); plt.ylabel("Cumulative Rs (1 Lot)")
-    plt.grid(True, alpha=0.3); plt.tight_layout(); plt.savefig("backtest.png")
-    df.to_csv("V13_Backtest_60Din.csv", index=False)
-    print("CSV Save Ho Gaya")
+def check_one(name, sym):
+    try:
+        high15, low15 = get_15m_levels(sym)
+        if high15 is None: return
+        today = datetime.now(IST).date()
+        df5 = yf.download(sym, period="2d", interval="5m", progress=False, auto_adjust=True)
+        df5 = clean_df(df5); df5 = df5[df5['Dt'].dt.date==today]
+        if len(df5) < 30: return
+        df5["VWAP"] = calc_vwap(df5)
+        df5["AvgVol"] = df5["Volume"].rolling(window=20).mean()
+        st = calc_supertrend(df5)
+        curr = df5.iloc[-1]; prev_c = df5.iloc[-2]
+        last_price = float(curr['Close']); prev_price = float(prev_c['Close'])
+        vwap = float(curr['VWAP']); vol_now = float(curr['Volume']); vol_avg = float(curr['AvgVol'])
+        vol_strong = vol_now > vol_avg * 1.5
+        st_now = st[-1]
+        call_break_high = prev_price <= high15 and last_price > high15
+        call_reclaim_low = prev_price < low15 and last_price > low15
+        call_cond = (call_break_high or call_reclaim_low) and last_price > vwap and vol_strong and st_now == 1
+        put_break_low = prev_price >= low15 and last_price < low15
+        put_reject_high = prev_price > high15 and last_price < high15
+        put_cond = (put_break_low or put_reject_high) and last_price < vwap and vol_strong and st_now == -1
+        if call_cond:
+            key = f"{today}_{name}_CALL_{str(curr['Dt'])}"
+            if key not in already_sent:
+                strike = get_strike(name, last_price)
+                sl = int(low15 if call_reclaim_low else high15)
+                tgt_pts = 100 if name=="NIFTY" else 200
+                target = int(last_price + tgt_pts); profit_rs = tgt_pts * LOT[name]
+                reason = "High Tod ke UPAR" if call_break_high else "Low se UPAR"
+                msg = f"👑 CALL - V16 BEST 👑\n📊 {name} - CALL\n📈 15m Level: High {high15:.0f} / Low {low15:.0f}\n💥 {reason} ✅\n📊 VWAP {vwap:.0f} ke UPAR ✅\n📊 Volume TEZ ✅\n🟢 Supertrend GREEN ✅\n💰 Entry {strike}-CE @ {last_price:.0f}\n🛑 SL: {sl}\n🎯 Target: {target} (+{tgt_pts} pts = +Rs {profit_rs})"
+                tg(msg); already_sent.add(key); daily_trades.append([name,"CALL",last_price,sl,target,tgt_pts,profit_rs]); return
+        if put_cond:
+            key = f"{today}_{name}_PUT_{str(curr['Dt'])}"
+            if key not in already_sent:
+                strike = get_strike(name, last_price)
+                sl = int(high15 if put_reject_high else low15)
+                tgt_pts = 100 if name=="NIFTY" else 200
+                target = int(last_price - tgt_pts); profit_rs = tgt_pts * LOT[name]
+                reason = "Low Tod ke NEECHE" if put_break_low else "High se NEECHE"
+                msg = f"👑 PUT - V16 BEST 👑\n📊 {name} - PUT\n📉 15m Level: High {high15:.0f} / Low {low15:.0f}\n💥 {reason} ✅\n📊 VWAP {vwap:.0f} ke NEECHE ✅\n📊 Volume TEZ ✅\n🔴 Supertrend RED ✅\n💰 Entry {strike}-PE @ {last_price:.0f}\n🛑 SL: {sl}\n🎯 Target: {target} (-{tgt_pts} pts = +Rs {profit_rs})"
+                tg(msg); already_sent.add(key); daily_trades.append([name,"PUT",last_price,sl,target,tgt_pts,profit_rs]); return
+    except Exception as e: print(name, e)
+def send_daily_report():
+    n_pts=0; s_pts=0; tot=0; lines=""
+    for t in daily_trades:
+        name,typ,entry,sl,target,pts,rs=t
+        if name=="NIFTY": n_pts+=pts
+        else: s_pts+=pts
+        tot+=rs; lines+=f"{name} {typ}: +{pts} pts x {LOT[name]} = +Rs {rs}\n"
+    if not lines: lines="Aaj koi Trade nahi bana - NO TRADE\n"
+    tg(f"📊 V16 DAILY REPORT - BEST 📊\n━━━━━━━━━━━━━━━━\n{lines}━━━━━━━━━━━━━━━━\nNIFTY Net: +{n_pts} pts\nSENSEX Net: +{s_pts} pts\nTOTAL: +Rs {tot} (1 Lot Each)")
+tg("✨ Option Bond 💥 V16 BEST BOT ON ✨\n━━━━━━━━━━━━━━━━\n✅ FINAL LOCK V16\n📦 15m Level (9:15 High/Low) + 5m Trade\n📊 VWAP + Volume + Supertrend Only")
+print("BOT V16 BEST STARTED", datetime.now(IST))
+start_time=time.time()
+while True:
+    now=datetime.now(IST); is_day=(now.weekday()<5)
+    is_market=is_day and ((now.hour==9 and now.minute>=30) or (now.hour>9 and now.hour<15) or (now.hour==15 and now.minute<=15))
+    if is_market:
+        for name,sym in SYMBOLS.items():
+            check_one(name,sym); time.sleep(1)
+    if is_day and now.hour==15 and now.minute>=15 and not exit_sent:
+        send_daily_report(); tg("✨ Option Bond 💥 EXIT ✨\n━━━━━━━━━━━━━━━━\n⏰ 3:15 HO GAYA\n❌ Trade Kaat Do"); exit_sent=True; break
+    if time.time()-start_time>30000: break
+    time.sleep(60)
