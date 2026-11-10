@@ -1,5 +1,5 @@
-V13 LIVE WALA HI CODE - ISKA PURA 3 MAHINE BACKTEST
-Isko alag se chalao - Live wale me paste MAT karna
+#V13 LIVE WALA HI CODE - ISKA PURA 3 MAHINE BACKTEST
+#Isko alag se chalao - Live wale me paste MAT karna
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
