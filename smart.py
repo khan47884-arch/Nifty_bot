@@ -1,9 +1,9 @@
-# V13 BACKTEST - 3 MONTH - FINAL
+# V13 BACKTEST - 60 DIN - YAHOO 5m LIMIT FIX - FINAL
 import yfinance as yf, pandas as pd, numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 import warnings; warnings.filterwarnings('ignore')
-print("3 Mahine ka Data Download Ho Raha Hai... 1 Min Ruko")
+print("60 Din ka Data Download Ho Raha Hai... 1 Min Ruko")
 SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
 LOT = {"NIFTY": 65, "SENSEX": 20}
 TARGET_PTS = {"NIFTY": 100, "SENSEX": 200}
@@ -33,8 +33,9 @@ def get_strike(name, entry):
 all_trades = []
 for name, sym in SYMBOLS.items():
     print(f"\n{name} Ka Backtest Chal Raha Hai...")
-    df15 = clean(yf.download(sym, period="3mo", interval="15m", progress=False, auto_adjust=True))
-    df5 = clean(yf.download(sym, period="3mo", interval="5m", progress=False, auto_adjust=True))
+    df15 = clean(yf.download(sym, period="60d", interval="15m", progress=False, auto_adjust=True))
+    df5 = clean(yf.download(sym, period="60d", interval="5m", progress=False, auto_adjust=True))
+    print(f"{name} 15m rows={len(df15)} 5m rows={len(df5)}")
     days = sorted(df5['Dt'].dt.date.unique())
     for day in days:
         d15 = df15[df15['Dt'].dt.date==day]
@@ -102,7 +103,7 @@ df = pd.DataFrame(all_trades)
 if df.empty:
     print("Koi Trade Nahi Bana - Data Check Karo")
 else:
-    print("V13 BACKTEST - 3 MONTH - PURA HISAB")
+    print("V13 BACKTEST - 60 DIN - PURA HISAB")
     total=len(df); wins=(df['Result']=="TARGET").sum(); losses=(df['Result']=="SL").sum()
     win_pct=wins/total*100 if total else 0
     total_rs=df['Rs'].sum()
@@ -117,8 +118,8 @@ else:
     df['Cum'] = df['Rs'].cumsum()
     plt.figure(figsize=(12,6))
     plt.plot(df['Cum'].values, linewidth=2)
-    plt.title(f"V13 Backtest 3 Month - Total Rs {total_rs:,.0f} | Win {win_pct:.1f}% | Trades {total}", fontsize=13, weight='bold')
+    plt.title(f"V13 Backtest 60 Din - Total Rs {total_rs:,.0f} | Win {win_pct:.1f}% | Trades {total}", fontsize=13, weight='bold')
     plt.xlabel("Trade Number"); plt.ylabel("Cumulative Rs (1 Lot)")
     plt.grid(True, alpha=0.3); plt.tight_layout(); plt.savefig("backtest.png")
-    df.to_csv("V13_Backtest_3Month.csv", index=False)
+    df.to_csv("V13_Backtest_60Din.csv", index=False)
     print("CSV Save Ho Gaya")
