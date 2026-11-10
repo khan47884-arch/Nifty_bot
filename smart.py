@@ -1,7 +1,6 @@
-# V13 BACKTEST V2 - DEBUG WALA - Volume 1.5x
+# V13 BACKTEST V3 - 60 DAYS ONLY - Yahoo 5m/15m 60 din se jyada nahi deta
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
 SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
 LOT = {"NIFTY": 65, "SENSEX": 20}
 def calc_rsi(series, period=14):
@@ -11,6 +10,7 @@ def calc_rsi(series, period=14):
     rs = gain / (loss + 1e-9)
     return 100 - (100 / (1 + rs))
 def clean_df(df):
+    if df is None or len(df)==0: return df
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     df = df.reset_index()
     df['Dt'] = pd.to_datetime(df.iloc[:,0])
@@ -94,15 +94,15 @@ def detect_main(df5):
 all_trades = []
 dbg = {"trend_ok":0, "pattern_ok":0, "vol_fail":0, "break_fail":0}
 for name, sym in SYMBOLS.items():
-    print(f"Loading {name} 3mo...")
-    df15 = yf.download(sym, period="3mo", interval="15m", progress=False, auto_adjust=True)
+    print(f"Loading {name} 60d...")
+    df15 = yf.download(sym, period="60d", interval="15m", progress=False, auto_adjust=True)
     df15 = clean_df(df15)
     df15['TP'] = (df15['High']+df15['Low']+df15['Close'])/3
     df15['TPV'] = df15['TP']*df15['Volume']
     df15['VWAP'] = df15.groupby(df15['Dt'].dt.date)['TPV'].cumsum() / df15.groupby(df15['Dt'].dt.date)['Volume'].cumsum()
     df15["EMA20"]=df15["Close"].ewm(span=20, adjust=False).mean()
     df15["EMA50"]=df15["Close"].ewm(span=50, adjust=False).mean()
-    df5 = yf.download(sym, period="3mo", interval="5m", progress=False, auto_adjust=True)
+    df5 = yf.download(sym, period="60d", interval="5m", progress=False, auto_adjust=True)
     df5 = clean_df(df5)
     df5["RSI"]=calc_rsi(df5["Close"])
     print(f"{name} 15m rows {len(df15)} 5m rows {len(df5)}")
@@ -155,9 +155,9 @@ for name, sym in SYMBOLS.items():
             else:
                 dbg["break_fail"]+=1
                 continue
-print("========== V13 V2 - 3 MAHINE BACKTEST ==========")
+print("========== V13 V3 - 60 DIN BACKTEST ==========")
 for t in all_trades: print(t)
-print(f"DEBUG Trend OK count: {dbg['trend_ok']} Pattern OK: {dbg['pattern_ok']} Vol Fail 1.5x: {dbg['vol_fail']} Break Fail: {dbg['break_fail']}")
+print(f"DEBUG Trend OK: {dbg['trend_ok']} Pattern OK: {dbg['pattern_ok']} Vol Fail 1.5x: {dbg['vol_fail']} Break Fail: {dbg['break_fail']}")
 n_rs = sum([x[10] for x in all_trades if x[2]=="NIFTY"])
 s_rs = sum([x[10] for x in all_trades if x[2]=="SENSEX"])
 win = sum([1 for x in all_trades if x[9]=="TARGET"])
