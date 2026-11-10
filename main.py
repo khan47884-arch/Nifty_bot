@@ -1,4 +1,3 @@
-V13 BOT FIXED - Aap wala code, 3 galti fix ki hui
 import yfinance as yf
 import pandas as pd
 import requests, os, time
