@@ -1,4 +1,4 @@
-V13 BACKTEST V5 - VWAP NaN + Vol 0 FIX - Index me Volume 0 hota hai
+V13 BACKTEST V5 FIXED - Pehli line me # lagana zaroori hai
 import yfinance as yf
 import pandas as pd
 SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
