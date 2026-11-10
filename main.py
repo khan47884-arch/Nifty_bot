@@ -1,3 +1,4 @@
+V13 BOT FIXED - Aap wala code, 3 galti fix ki hui
 import yfinance as yf
 import pandas as pd
 import requests, os, time
@@ -33,7 +34,10 @@ def calc_vwap_daily(df):
     df = df.copy()
     df['TP'] = (df['High'] + df['Low'] + df['Close']) / 3
     df['TPV'] = df['TP'] * df['Volume']
-    df['VWAP'] = df.groupby(df['Dt'].dt.date)['TPV'].cumsum() / df.groupby(df['Dt'].dt.date)['Volume'].cumsum()
+    vol_cum = df.groupby(df['Dt'].dt.date)['Volume'].cumsum()
+    tpv_cum = df.groupby(df['Dt'].dt.date)['TPV'].cumsum()
+    df['VWAP'] = tpv_cum / vol_cum.replace(0, float('nan'))
+    df['VWAP'] = df['VWAP'].fillna(df['Close'].rolling(20, min_periods=1).mean())
     return df.drop(columns=['TP','TPV'])
 
 def clean_df(df):
@@ -158,11 +162,16 @@ def check_one(name, sym):
         if len(df5)<22: return
         df5["RSI"]=calc_rsi(df5["Close"])
         prev=df5.iloc[-3]; curr=df5.iloc[-2]; nxt=df5.iloc[-1]
-        pat, side = detect_main(df5.iloc[:-2])
+        pat, side = detect_main(df5.iloc[-3:])
         if pat is None:
-            pat, side = detect_bonus(df5.iloc[:-1])
+            pat, side = detect_bonus(df5.iloc[-20:])
         if pat is None: print(f"{name} Pattern nahi"); return
-        vol_ok = float(curr['Volume']) >= 2*float(prev['Volume']) if float(prev['Volume'])>0 else False
+        pv=float(prev['Volume']); cv=float(curr['Volume'])
+        if pv>0 and cv>0:
+            vol_ok = cv >= 2*pv
+        else:
+            vol_ok = True
+            print(f"{name} Volume data 0 hai, Volume check skip")
         if not vol_ok: print(f"{name} Volume 2x nahi"); return
         rsi5=float(curr['RSI']); rsi_txt="STRONG" if rsi5>60 else ("OK" if rsi5>=50 else "WEAK")
         if trend=="UPTREND" and side=="Bullish" and float(nxt['High'])>float(prev['High']):
@@ -203,5 +212,5 @@ while True:
         for name,sym in SYMBOLS.items(): check_one(name,sym); time.sleep(1)
     if is_day and now.hour==15 and now.minute>=15 and not exit_sent:
         send_daily_report(); tg("✨ Option Bond 💥 EXIT ✨\n━━━━━━━━━━━━━━━━\n⏰ 3:15 HO GAYA\n❌ Trade Kaat Do"); exit_sent=True; break
-    if time.time()-start_time>20000: break
+    if time.time()-start_time>30000: break
     time.sleep(60)
