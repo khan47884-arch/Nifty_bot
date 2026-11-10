@@ -1,69 +1,168 @@
-import yfinance as yf, pytz, requests, os, json
+V13 LIVE WALA HI CODE - ISKA PURA 3 MAHINE BACKTEST
+Isko alag se chalao - Live wale me paste MAT karna
+import yfinance as yf
+import pandas as pd
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
-BOT=os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT=os.getenv("TELEGRAM_CHAT_ID")
-def tg(m):
- try:
-  ist=pytz.timezone('Asia/Kolkata')
-  s=datetime.now(ist).strftime("%d-%b %I:%M %p IST")
-  requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage",data={"chat_id":CHAT,"text":f"{m}\n\nSTAMP:{s}\nV12.1 SMART MONEY + DII/FII"},timeout=30)
- except: pass
-LONG_TERM_120 = ["RVNL.NS","IRFC.NS","SJVN.NS","NHPC.NS","NBCC.NS","HUDCO.NS","IRCON.NS","RAILTEL.NS","TITAGARH.NS","JUPITERWAGONS.NS","TEXRAIL.NS","BHEL.NS","BDL.NS","BEL.NS","MAZDOCK.NS","COCHINSHIP.NS","HAL.NS","GRSE.NS","BEML.NS","PRAJIND.NS","BHARATFORG.NS","ASHOKLEY.NS","MOTHERSON.NS","ENDURANCE.NS","SONACOMS.NS","UNOMINDA.NS","SANDHAR.NS","JWL.NS","CRAFTSMAN.NS","WELCORP.NS","RATNAMANI.NS","JINDALSTEL.NS","SAIL.NS","NATIONALUM.NS","NMDC.NS","HINDZINC.NS","HINDCOPPER.NS","JSL.NS","JSWENERGY.NS","TORNTPOWER.NS","CESC.NS","POWERGRID.NS","NTPC.NS","TATAPOWER.NS","SUZLON.NS","INOXWIND.NS","BORORENEW.NS","KPIL.NS","KEC.NS","KALPATPOWR.NS","CDSL.NS","BSE.NS","ANGELONE.NS","MCX.NS","IEX.NS","CAMS.NS","KFINTECH.NS","MOTILALOFS.NS","IIFL.NS","NUVAMA.NS","ANANDRATHI.NS","DIXON.NS","KAYNES.NS","SYRMA.NS","AMBER.NS","PGEL.NS","CGPOWER.NS","KEI.NS","RRKABEL.NS","APARINDS.NS","POLYCAB.NS","VOLTAS.NS","BLUESTARCO.NS","WHIRLPOOL.NS","CROMPTON.NS","HAVELLS.NS","KALYANKJIL.NS","PCJEWELLER.NS","KAJARIACER.NS","TANLA.NS","SAFARI.NS","CERA.NS","KPRMILL.NS","TRIDENT.NS","WELSPUNLIV.NS","ARVIND.NS","PAGEIND.NS","RAYMOND.NS","VBL.NS","VARUNBEV.NS","PATANJALI.NS","AWL.NS","AFFLE.NS","ROUTE.NS","KPITTECH.NS","PERSISTENT.NS","COFORGE.NS","BSOFT.NS","ZENSAR.NS","CYIENT.NS","INTELLECT.NS","MASTEK.NS","TATAELXSI.NS","TATATECH.NS","DEEPAKNTR.NS","ATUL.NS","NAVINFLUOR.NS","FINEORG.NS","CLEAN.NS","AARTIIND.NS","VINATIORGA.NS","BALAMINES.NS","CHAMBLFERT.NS","COROMANDEL.NS","FACT.NS","GNFC.NS","CHALET.NS","LEMONTREE.NS","EIHOTEL.NS","INDHOTEL.NS"]
-NEW_100 = ["INDIANB.NS","UNIONBANK.NS","BANKINDIA.NS","CENTRALBK.NS","BANKBARODA.NS","PNB.NS","CANBK.NS","IDFCFIRSTB.NS","FEDERALBNK.NS","EQUITASBNK.NS","BANDHANBNK.NS","CREDITACC.NS","M&MFIN.NS","POONAWALLA.NS","LTF.NS","PNBHOUSING.NS","AAVAS.NS","HOMEFIRST.NS","MASFIN.NS","BRIGADE.NS","SOBHA.NS","LODHA.NS","DLF.NS","GODREJPROP.NS","OBEROIRLTY.NS","PRESTIGE.NS","PHOENIXLTD.NS","HFCL.NS","IDEA.NS","ZOMATO.NS","PAYTM.NS","NYKAA.NS","OIL.NS","GSPL.NS","PETRONET.NS","IGL.NS","MGL.NS","GUJGASLTD.NS","BALKRISIND.NS","MRF.NS","APOLLOTYRE.NS","CEAT.NS","JUBLFOOD.NS","INDIGO.NS","IRB.NS","NCC.NS","ASTRAL.NS","FINCABLES.NS","JINDALSAW.NS","WELSPUNIND.NS","HINDPETRO.NS","BPCL.NS","IOC.NS","GAIL.NS","ONGC.NS","VEDL.NS","COALINDIA.NS","UPL.NS","PIIND.NS","SRF.NS","LUPIN.NS","CIPLA.NS","SUNPHARMA.NS","DIVISLAB.NS","DRREDDY.NS","MANKIND.NS","CUMMINSIND.NS","BOSCHLTD.NS","EICHERMOT.NS","BAJAJ-AUTO.NS","HEROMOTOCO.NS","TVSMOTOR.NS","ULTRACEMCO.NS","GRASIM.NS","AMBUJACEM.NS","ACC.NS","JKCEMENT.NS","ASIANPAINT.NS","BERGEPAINT.NS","PIDILITIND.NS","ABB.NS","SIEMENS.NS","THERMAX.NS","SCHAEFFLER.NS","TITAN.NS","DMART.NS","TRENT.NS","INDIAMART.NS","OFSS.NS","LTIM.NS","HCLTECH.NS","WIPRO.NS","TECHM.NS","BAJAJFINSV.NS","SBILIFE.NS","HDFCLIFE.NS","CHOLAFIN.NS","SHRIRAMFIN.NS","RECLTD.NS","PFC.NS"]
-STOCKS = list(dict.fromkeys(LONG_TERM_120 + NEW_100))
-STOCK_NAMES = set([s.replace(".NS","") for s in STOCKS])
-def bulk_deals():
- try:
-  headers={"User-Agent":"Mozilla/5.0","Accept":"application/json","Accept-Language":"en-US,en;q=0.9"}
-  s=requests.Session()
-  s.get("https://www.nseindia.com",headers=headers,timeout=15)
-  r=s.get("https://www.nseindia.com/api/corporates-bulk-deals?index=equities&symbol=",headers=headers,timeout=20)
-  data=r.json().get("data",[])
-  out=[]
-  for d in data:
-   sym=d.get("symbol","").upper()
-   name=d.get("clientName","")
-   qty=d.get("quantityTraded",0)
-   if sym in STOCK_NAMES:
-    big = any(k in name.upper() for k in ["FUND","MUTUAL","FII","FOREIGN","INSURANCE","LIC","SBI","HDFC","ICICI","AXIS","KOTAK","NIPPON","ADITYA","UTI","MORGAN","GOLDMAN","BLACKROCK","FIDELITY","HSBC","CITI","JP MORGAN"])
-    tag = "🔥 BADA CLIENT" if big else "Bulk Deal"
-    out.append(f"🏦 {tag} {sym} - {name} Qty {qty}")
-  return out[:10]
- except Exception as e:
-  return []
-def chk(s):
- try:
-  df=yf.download(s,period="3mo",interval="1d",progress=False,auto_adjust=True)
-  if len(df)<50: return None
-  df.columns=[x[0] if isinstance(x,tuple) else x for x in df.columns]
-  c=df['Close'].iloc[-1]
-  vol=df['Volume'].iloc[-1]; va=df['Volume'].iloc[-20:-1].mean()
-  v_ratio=vol/max(va,1)
-  ema20=df['Close'].ewm(span=20).mean().iloc[-1]
-  high52=df['Close'].iloc[-50:].max()
-  chg=(c-df['Close'].iloc[-2])/df['Close'].iloc[-2]*100
-  score=0; reason=[]
-  if v_ratio>2.5: score+=3; reason.append(f"Vol x{v_ratio:.1f} BADA PAISA")
-  elif v_ratio>1.8: score+=2; reason.append(f"Vol x{v_ratio:.1f}")
-  if chg>2 and c>ema20: score+=2; reason.append(f"+{chg:.1f}% Bhaag raha")
-  if c>high52*0.98: score+=3; reason.append("52W High ke paas - BREAKOUT")
-  if c>ema20: score+=1
-  if score<5: return None
-  verdict="🚀 LAMBA JAYEGA - PRE-OPEN ME NAZAR RAKHO" if score>=7 else "⚡ TEZ HAI - Nazar rakho"
-  sl=c*0.97; t1=c*1.05; t2=c*1.12
-  return (score, f"💎 SMART {s.replace('.NS','')} Rs{c:.0f} Score{score}/9\n{verdict}\n{', '.join(reason)}\nSL {sl:.0f} TGT {t1:.0f}/{t2:.0f}")
- except: return None
-with ThreadPoolExecutor(max_workers=10) as ex:
- res=[x for x in ex.map(chk,STOCKS) if x]
-res.sort(key=lambda x: x[0], reverse=True)
-top=[r[1] for r in res[:5]]
-bulk=bulk_deals()
-msg=""
-if bulk:
- msg+="🏦 DII / FII / MF BULK DEAL - TUMHARI LIST ME:\n"+"\n".join(bulk)+"\n\n"
-if top:
- msg+=f"💎 V12.1 SMART MONEY - 280 ME SE BADA PAISA:\n\n"+"\n\n".join(top)
-if not msg:
- msg="💎 V12.1 SMART MONEY - Aaj 280 me kahi bada paisa nahi ghusa, aaram karo"
-tg(msg)
+
+SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
+LOT = {"NIFTY": 65, "SENSEX": 20}
+
+def calc_rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0).rolling(window=period).mean()
+    loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
+    rs = gain / (loss + 1e-9)
+    return 100 - (100 / (1 + rs))
+
+def clean_df(df):
+    df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+    df = df.reset_index()
+    df['Dt'] = pd.to_datetime(df.iloc[:,0])
+    try: df['Dt'] = df['Dt'].dt.tz_convert('Asia/Kolkata').dt.tz_localize(None)
+    except: pass
+    return df
+
+def gv(c): return float(c["Open"]), float(c["Close"]), float(c["High"]), float(c["Low"])
+def is_hammer(c):
+    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    return rng!=0 and cl>o and (min(o,cl)-l)>body*2 and (h-max(o,cl))<body*0.5
+def is_inv_hammer(c):
+    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    return rng!=0 and cl>o and (h-max(o,cl))>body*2 and (min(o,cl)-l)<body*0.5
+def is_dragonfly(c):
+    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    return rng!=0 and body<rng*0.1 and (min(o,cl)-l)>rng*0.7
+def is_shooting(c):
+    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    return rng!=0 and cl<o and (h-max(o,cl))>body*2 and (min(o,cl)-l)<body*0.5
+def is_hanging(c):
+    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    return rng!=0 and cl<o and (min(o,cl)-l)>body*2 and (h-max(o,cl))<body*0.5
+def is_grave(c):
+    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    return rng!=0 and body<rng*0.1 and (h-max(o,cl))>rng*0.7
+
+def detect_bonus(df):
+    if len(df) < 20: return None, None
+    d = df.tail(20)
+    highs = d["High"].values; lows = d["Low"].values; closes = d["Close"].values
+    l1 = min(lows[:8]); l2 = min(lows[-8:]); mid_high = max(highs[8:12])
+    if abs(l1-l2) < (max(highs)-min(lows))*0.08 and closes[-1] > mid_high:
+        return "DOUBLE BOTTOM (Bonus)", "Bullish"
+    h1 = max(highs[:8]); h2 = max(highs[-8:]); mid_low = min(lows[8:12])
+    if abs(h1-h2) < (max(highs)-min(lows))*0.08 and closes[-1] < mid_low:
+        return "DOUBLE TOP (Bonus)", "Bearish"
+    if abs(max(highs[-6:])-max(highs[:6])) < (max(highs)-min(lows))*0.08 and min(lows[-6:]) > min(lows[:6]) and closes[-1] > max(highs[-6:]):
+        return "ASCENDING TRIANGLE (Bonus)", "Bullish"
+    if abs(min(lows[-6:])-min(lows[:6])) < (max(highs)-min(lows))*0.08 and max(highs[-6:]) < max(highs[:6]) and closes[-1] < min(lows[-6:]):
+        return "DESCENDING TRIANGLE (Bonus)", "Bearish"
+    if closes[5] > closes[0]*1.001 and closes[-1] > max(highs[-5:-1]):
+        return "BULLISH FLAG (Bonus)", "Bullish"
+    if closes[5] < closes[0]*0.999 and closes[-1] < min(lows[-5:-1]):
+        return "BEARISH FLAG (Bonus)", "Bearish"
+    if max(highs[:5]) > max(highs[-5:]) and min(lows[:5]) > min(lows[-5:]) and (max(highs[-5:])-min(lows[-5:])) < (max(highs[:5])-min(lows[:5]))*0.6 and closes[-1] > max(highs[-3:]):
+        return "FALLING WEDGE (Bonus)", "Bullish"
+    if max(highs[:5]) < max(highs[-5:]) and min(lows[:5]) < min(lows[-5:]) and (max(highs[-5:])-min(lows[-5:])) < (max(highs[:5])-min(lows[:5]))*0.6 and closes[-1] < min(lows[-3:]):
+        return "RISING WEDGE (Bonus)", "Bearish"
+    if len(d)>=15:
+        left = max(highs[2:5]); head = max(highs[6:9]); right = max(highs[10:13])
+        if head > left and head > right and abs(left-right) < (head-min(lows))*0.1 and closes[-1] < min(lows[5:12]):
+            return "HEAD & SHOULDERS (Bonus)", "Bearish"
+        l_left = min(lows[2:5]); l_head = min(lows[6:9]); l_right = min(lows[10:13])
+        if l_head < l_left and l_head < l_right and abs(l_left-l_right) < (max(highs)-l_head)*0.1 and closes[-1] > max(highs[5:12]):
+            return "INV. HEAD & SHOULDERS (Bonus)", "Bullish"
+    if (max(highs[-3:])-min(lows[-3:])) < (max(highs[:5])-min(lows[:5]))*0.4:
+        if closes[-1] > max(highs[-4:]): return "SYMMETRICAL TRIANGLE UP (Bonus)", "Bullish"
+        if closes[-1] < min(lows[-4:]): return "SYMMETRICAL TRIANGLE DOWN (Bonus)", "Bearish"
+    return None, None
+
+def detect_main(df5):
+    if len(df5)<3: return None,None
+    c1=df5.iloc[-3]; c2=df5.iloc[-2]; c3=df5.iloc[-1]
+    o1,cl1,h1,l1=gv(c1); o2,cl2,h2,l2=gv(c2); o3,cl3,h3,l3=gv(c3)
+    if is_hammer(c3): return "HAMMER", "Bullish"
+    if is_inv_hammer(c3): return "INVERTED HAMMER", "Bullish"
+    if is_dragonfly(c3): return "DRAGONFLY DOJI", "Bullish"
+    if cl1<o1 and abs(cl2-o2)<abs(cl1-o1)*0.4 and cl3>o3 and cl3>(o1+cl1)/2: return "MORNING STAR", "Bullish"
+    if is_shooting(c3): return "SHOOTING STAR", "Bearish"
+    if is_hanging(c3): return "HANGING MAN", "Bearish"
+    if is_grave(c3): return "GRAVESTONE DOJI", "Bearish"
+    if cl1>o1 and abs(cl2-o2)<abs(cl1-o1)*0.4 and cl3<o3 and cl3<(o1+cl1)/2: return "EVENING STAR", "Bearish"
+    return None,None
+
+all_trades = []
+for name, sym in SYMBOLS.items():
+    print(f"Loading {name} 3mo...")
+    df15 = yf.download(sym, period="3mo", interval="15m", progress=False, auto_adjust=True)
+    df15 = clean_df(df15)
+    df15['TP'] = (df15['High']+df15['Low']+df15['Close'])/3
+    df15['TPV'] = df15['TP']*df15['Volume']
+    df15['VWAP'] = df15.groupby(df15['Dt'].dt.date)['TPV'].cumsum() / df15.groupby(df15['Dt'].dt.date)['Volume'].cumsum()
+    df15["EMA20"]=df15["Close"].ewm(span=20, adjust=False).mean()
+    df15["EMA50"]=df15["Close"].ewm(span=50, adjust=False).mean()
+    df5 = yf.download(sym, period="3mo", interval="5m", progress=False, auto_adjust=True)
+    df5 = clean_df(df5)
+    df5["RSI"]=calc_rsi(df5["Close"])
+
+    for date, day15 in df15.groupby(df15['Dt'].dt.date):
+        day5 = df5[df5['Dt'].dt.date==date].reset_index(drop=True)
+        if len(day5)<25: continue
+        box = day15[(day15['Dt'].dt.hour==9) & (day15['Dt'].dt.minute==15)]
+        if box.empty: continue
+        box_high=float(box["High"].iloc[0]); box_low=float(box["Low"].iloc[0])
+        # Live jaisa - har 5m candle pe check, din me 1 trade per symbol
+        for i in range(22, len(day5)-1):
+            curr = day5.iloc[i]; prev = day5.iloc[i-1]; nxt = day5.iloc[i+1]
+            # Time 9:30 - 15:00
+            if curr['Dt'].hour==9 and curr['Dt'].minute<30: continue
+            if curr['Dt'].hour>=15 and curr['Dt'].minute>0: continue
+            c15_row = day15[day15['Dt']<=curr['Dt']]
+            if c15_row.empty: continue
+            last15=c15_row.iloc[-1]
+            c15=float(last15['Close']); v15=float(last15['VWAP']); e20=float(last15['EMA20']); e50=float(last15['EMA50'])
+            if c15>v15 and c15>e20 and e20>e50: trend="UPTREND"
+            elif c15<v15 and c15<e20 and e20<e50: trend="DOWNTREND"
+            else: continue
+            pat, side = detect_main(day5.iloc[i-2:i+1])
+            if pat is None:
+                pat, side = detect_bonus(day5.iloc[i-19:i+1])
+            if pat is None: continue
+            vol_ok = float(curr['Volume']) >= 2*float(prev['Volume']) if float(prev['Volume'])>0 else False
+            if not vol_ok: continue
+            rsi5=float(curr['RSI'])
+            tgt_pts=100 if name=="NIFTY" else 200
+            if trend=="UPTREND" and side=="Bullish" and float(nxt['High'])>float(prev['High']):
+                entry=float(nxt['Close']); sl=float(prev['Low']); target=entry+tgt_pts
+                res="TARGET"; pnl=tgt_pts*LOT[name]
+                for _, f in day5.iloc[i+2:i+12].iterrows():
+                    if float(f['Low'])<=sl: res="SL"; pnl=-round((entry-sl)*LOT[name]); break
+                    if float(f['High'])>=target: res="TARGET"; break
+                else: res="OPEN"; pnl=0
+                all_trades.append([str(date), str(curr['Dt'].time())[:5], name, "CALL", pat, f"RSI {rsi5:.0f}", round(entry), round(sl), round(target), res, pnl, f"BOX {box_low:.0f}-{box_high:.0f}"])
+                break
+            if trend=="DOWNTREND" and side=="Bearish" and float(nxt['Low'])<float(prev['Low']):
+                entry=float(nxt['Close']); sl=float(prev['High']); target=entry-tgt_pts
+                res="TARGET"; pnl=tgt_pts*LOT[name]
+                for _, f in day5.iloc[i+2:i+12].iterrows():
+                    if float(f['High'])>=sl: res="SL"; pnl=-round((sl-entry)*LOT[name]); break
+                    if float(f['Low'])<=target: res="TARGET"; break
+                else: res="OPEN"; pnl=0
+                all_trades.append([str(date), str(curr['Dt'].time())[:5], name, "PUT", pat, f"RSI {rsi5:.0f}", round(entry), round(sl), round(target), res, pnl, f"BOX {box_low:.0f}-{box_high:.0f}"])
+                break
+
+print("\n========== V13 + BONUS - 3 MAHINE BACKTEST - PURA ==========")
+print("DATE | TIME | SYMBOL | TYPE | PATTERN | RSI | ENTRY | SL | TARGET | RESULT | PNL | BOX")
+for t in all_trades:
+    print(t)
+n_rs = sum([x[10] for x in all_trades if x[2]=="NIFTY"])
+s_rs = sum([x[10] for x in all_trades if x[2]=="SENSEX"])
+win = sum([1 for x in all_trades if x[9]=="TARGET"])
+slc = sum([1 for x in all_trades if x[9]=="SL"])
+main_c = sum([1 for x in all_trades if "Bonus" not in x[4]])
+bonus_c = sum([1 for x in all_trades if "Bonus" in x[4]])
+print(f"\nTotal Trades: {len(all_trades)} | TARGET: {win} | SL: {slc} | Win%: {round(win/len(all_trades)*100,1) if all_trades else 0}%")
+print(f"Main Pattern Trades: {main_c} | Bonus Pattern Trades: {bonus_c}")
+print(f"NIFTY Net: Rs {n_rs}")
+print(f"SENSEX Net: Rs {s_rs}")
+print(f"TOTAL NET: Rs {n_rs+s_rs} (1 Lot Each - NIFTY x65 | SENSEX x20)")
+print("===============================================================")
