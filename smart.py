@@ -1,47 +1,50 @@
-#V13 LIVE WALA HI CODE - ISKA PURA 3 MAHINE BACKTEST
-#Isko alag se chalao - Live wale me paste MAT karna
+# V13 BACKTEST V2 - DEBUG WALA - Volume 1.5x
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
-
 SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
 LOT = {"NIFTY": 65, "SENSEX": 20}
-
 def calc_rsi(series, period=14):
     delta = series.diff()
     gain = delta.where(delta > 0, 0).rolling(window=period).mean()
     loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
     rs = gain / (loss + 1e-9)
     return 100 - (100 / (1 + rs))
-
 def clean_df(df):
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     df = df.reset_index()
     df['Dt'] = pd.to_datetime(df.iloc[:,0])
-    try: df['Dt'] = df['Dt'].dt.tz_convert('Asia/Kolkata').dt.tz_localize(None)
-    except: pass
+    try:
+        df['Dt'] = df['Dt'].dt.tz_convert('Asia/Kolkata').dt.tz_localize(None)
+    except:
+        pass
     return df
-
-def gv(c): return float(c["Open"]), float(c["Close"]), float(c["High"]), float(c["Low"])
+def gv(c):
+    return float(c["Open"]), float(c["Close"]), float(c["High"]), float(c["Low"])
 def is_hammer(c):
-    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    o,cl,h,l=gv(c)
+    body=abs(cl-o); rng=h-l
     return rng!=0 and cl>o and (min(o,cl)-l)>body*2 and (h-max(o,cl))<body*0.5
 def is_inv_hammer(c):
-    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    o,cl,h,l=gv(c)
+    body=abs(cl-o); rng=h-l
     return rng!=0 and cl>o and (h-max(o,cl))>body*2 and (min(o,cl)-l)<body*0.5
 def is_dragonfly(c):
-    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    o,cl,h,l=gv(c)
+    body=abs(cl-o); rng=h-l
     return rng!=0 and body<rng*0.1 and (min(o,cl)-l)>rng*0.7
 def is_shooting(c):
-    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    o,cl,h,l=gv(c)
+    body=abs(cl-o); rng=h-l
     return rng!=0 and cl<o and (h-max(o,cl))>body*2 and (min(o,cl)-l)<body*0.5
 def is_hanging(c):
-    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    o,cl,h,l=gv(c)
+    body=abs(cl-o); rng=h-l
     return rng!=0 and cl<o and (min(o,cl)-l)>body*2 and (h-max(o,cl))<body*0.5
 def is_grave(c):
-    o,cl,h,l=gv(c); body=abs(cl-o); rng=h-l
+    o,cl,h,l=gv(c)
+    body=abs(cl-o); rng=h-l
     return rng!=0 and body<rng*0.1 and (h-max(o,cl))>rng*0.7
-
 def detect_bonus(df):
     if len(df) < 20: return None, None
     d = df.tail(20)
@@ -75,7 +78,6 @@ def detect_bonus(df):
         if closes[-1] > max(highs[-4:]): return "SYMMETRICAL TRIANGLE UP (Bonus)", "Bullish"
         if closes[-1] < min(lows[-4:]): return "SYMMETRICAL TRIANGLE DOWN (Bonus)", "Bearish"
     return None, None
-
 def detect_main(df5):
     if len(df5)<3: return None,None
     c1=df5.iloc[-3]; c2=df5.iloc[-2]; c3=df5.iloc[-1]
@@ -89,8 +91,8 @@ def detect_main(df5):
     if is_grave(c3): return "GRAVESTONE DOJI", "Bearish"
     if cl1>o1 and abs(cl2-o2)<abs(cl1-o1)*0.4 and cl3<o3 and cl3<(o1+cl1)/2: return "EVENING STAR", "Bearish"
     return None,None
-
 all_trades = []
+dbg = {"trend_ok":0, "pattern_ok":0, "vol_fail":0, "break_fail":0}
 for name, sym in SYMBOLS.items():
     print(f"Loading {name} 3mo...")
     df15 = yf.download(sym, period="3mo", interval="15m", progress=False, auto_adjust=True)
@@ -103,19 +105,17 @@ for name, sym in SYMBOLS.items():
     df5 = yf.download(sym, period="3mo", interval="5m", progress=False, auto_adjust=True)
     df5 = clean_df(df5)
     df5["RSI"]=calc_rsi(df5["Close"])
-
+    print(f"{name} 15m rows {len(df15)} 5m rows {len(df5)}")
     for date, day15 in df15.groupby(df15['Dt'].dt.date):
         day5 = df5[df5['Dt'].dt.date==date].reset_index(drop=True)
         if len(day5)<25: continue
         box = day15[(day15['Dt'].dt.hour==9) & (day15['Dt'].dt.minute==15)]
         if box.empty: continue
         box_high=float(box["High"].iloc[0]); box_low=float(box["Low"].iloc[0])
-        # Live jaisa - har 5m candle pe check, din me 1 trade per symbol
         for i in range(22, len(day5)-1):
             curr = day5.iloc[i]; prev = day5.iloc[i-1]; nxt = day5.iloc[i+1]
-            # Time 9:30 - 15:00
             if curr['Dt'].hour==9 and curr['Dt'].minute<30: continue
-            if curr['Dt'].hour>=15 and curr['Dt'].minute>0: continue
+            if curr['Dt'].hour>=15: continue
             c15_row = day15[day15['Dt']<=curr['Dt']]
             if c15_row.empty: continue
             last15=c15_row.iloc[-1]
@@ -123,12 +123,15 @@ for name, sym in SYMBOLS.items():
             if c15>v15 and c15>e20 and e20>e50: trend="UPTREND"
             elif c15<v15 and c15<e20 and e20<e50: trend="DOWNTREND"
             else: continue
+            dbg["trend_ok"]+=1
             pat, side = detect_main(day5.iloc[i-2:i+1])
-            if pat is None:
-                pat, side = detect_bonus(day5.iloc[i-19:i+1])
+            if pat is None: pat, side = detect_bonus(day5.iloc[i-19:i+1])
             if pat is None: continue
-            vol_ok = float(curr['Volume']) >= 2*float(prev['Volume']) if float(prev['Volume'])>0 else False
-            if not vol_ok: continue
+            dbg["pattern_ok"]+=1
+            vol_ok = float(curr['Volume']) >= 1.5*float(prev['Volume']) if float(prev['Volume'])>0 else False
+            if not vol_ok:
+                dbg["vol_fail"]+=1
+                continue
             rsi5=float(curr['RSI'])
             tgt_pts=100 if name=="NIFTY" else 200
             if trend=="UPTREND" and side=="Bullish" and float(nxt['High'])>float(prev['High']):
@@ -140,7 +143,7 @@ for name, sym in SYMBOLS.items():
                 else: res="OPEN"; pnl=0
                 all_trades.append([str(date), str(curr['Dt'].time())[:5], name, "CALL", pat, f"RSI {rsi5:.0f}", round(entry), round(sl), round(target), res, pnl, f"BOX {box_low:.0f}-{box_high:.0f}"])
                 break
-            if trend=="DOWNTREND" and side=="Bearish" and float(nxt['Low'])<float(prev['Low']):
+            elif trend=="DOWNTREND" and side=="Bearish" and float(nxt['Low'])<float(prev['Low']):
                 entry=float(nxt['Close']); sl=float(prev['High']); target=entry-tgt_pts
                 res="TARGET"; pnl=tgt_pts*LOT[name]
                 for _, f in day5.iloc[i+2:i+12].iterrows():
@@ -149,20 +152,17 @@ for name, sym in SYMBOLS.items():
                 else: res="OPEN"; pnl=0
                 all_trades.append([str(date), str(curr['Dt'].time())[:5], name, "PUT", pat, f"RSI {rsi5:.0f}", round(entry), round(sl), round(target), res, pnl, f"BOX {box_low:.0f}-{box_high:.0f}"])
                 break
-
-print("\n========== V13 + BONUS - 3 MAHINE BACKTEST - PURA ==========")
-print("DATE | TIME | SYMBOL | TYPE | PATTERN | RSI | ENTRY | SL | TARGET | RESULT | PNL | BOX")
-for t in all_trades:
-    print(t)
+            else:
+                dbg["break_fail"]+=1
+                continue
+print("========== V13 V2 - 3 MAHINE BACKTEST ==========")
+for t in all_trades: print(t)
+print(f"DEBUG Trend OK count: {dbg['trend_ok']} Pattern OK: {dbg['pattern_ok']} Vol Fail 1.5x: {dbg['vol_fail']} Break Fail: {dbg['break_fail']}")
 n_rs = sum([x[10] for x in all_trades if x[2]=="NIFTY"])
 s_rs = sum([x[10] for x in all_trades if x[2]=="SENSEX"])
 win = sum([1 for x in all_trades if x[9]=="TARGET"])
 slc = sum([1 for x in all_trades if x[9]=="SL"])
-main_c = sum([1 for x in all_trades if "Bonus" not in x[4]])
-bonus_c = sum([1 for x in all_trades if "Bonus" in x[4]])
-print(f"\nTotal Trades: {len(all_trades)} | TARGET: {win} | SL: {slc} | Win%: {round(win/len(all_trades)*100,1) if all_trades else 0}%")
-print(f"Main Pattern Trades: {main_c} | Bonus Pattern Trades: {bonus_c}")
+print(f"Total Trades: {len(all_trades)} | TARGET: {win} | SL: {slc} | Win%: {round(win/len(all_trades)*100,1) if all_trades else 0}%")
 print(f"NIFTY Net: Rs {n_rs}")
 print(f"SENSEX Net: Rs {s_rs}")
 print(f"TOTAL NET: Rs {n_rs+s_rs} (1 Lot Each - NIFTY x65 | SENSEX x20)")
-print("===============================================================")
