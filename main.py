@@ -80,45 +80,47 @@ def check_one(name, sym):
         strong_bear = last_price < o and body > rng * 0.6
         first_green = last_price > o and pc < po
         first_red = last_price < o and pc > po
-        upar_se_neeche_put = (bear_engulf or shoot_star or strong_bear or first_red) and rsi_down and last_price < o and h >= mid15 - box_range * 0.10
-        support_tod_put = pc >= low15 and last_price < low15 and (bear_engulf or strong_bear or first_red or rsi_down)
-        support_pe_call = l <= low15 + box_range * 0.15 and last_price > low15 and (bull_engulf or hammer or strong_bull or first_green) and rsi_up and last_price > o
-        mid_reject_put = h >= mid15 - 5 and h <= mid15 + 10 and (bear_engulf or shoot_star or strong_bear) and rsi_down and last_price < o
-        mid_support_call = l <= mid15 + 5 and l >= mid15 - 10 and (bull_engulf or hammer or strong_bull or first_green) and rsi_up and last_price > o
-        break_call = pc <= high15 and last_price > high15
+        bullish = (bull_engulf or hammer or strong_bull or first_green) and rsi_up
+        bearish = (bear_engulf or shoot_star or strong_bear or first_red) and rsi_down
+        support_pe_call = l <= low15 + box_range*0.15 and last_price > low15 and bullish and last_price > o
+        resistance_pe_put = h >= high15 - box_range*0.15 and last_price < high15 and bearish and last_price < o
+        break_call = pc <= high15 and last_price > high15 and (bullish or last_price > o)
+        break_put = pc >= low15 and last_price < low15 and (bearish or last_price < o)
+        mid_support_call = l <= mid15+5 and l >= mid15-10 and bullish and last_price > o
+        mid_reject_put = h >= mid15-5 and h <= mid15+10 and bearish and last_price < o
         vol_blast = vol_now > vol_avg * 2.0
         if vol_blast:
             key_v = f"{today}_{name}_VOLBLAST_{str(curr['Dt'])}"
             if key_v not in already_sent:
-                tg(f"💥 VOLUME BLAST - {name} 💥\n📊 Price: {last_price:.2f}\n📊 Volume: {vol_now:.0f} vs Avg {vol_avg:.0f} (2x+)\n⚠️ Taiyar Raho - Bada Move Aane Wala Hai\nResistance: {high15:.2f} / Mid: {mid15:.2f} / Support: {low15:.2f}")
+                tg(f"VOLUME ALERT | {name}\n\nPrice: {last_price:.2f}\nVolume: {vol_now:.0f} vs Avg {vol_avg:.0f} (2x+)\n\nHigh Volume Detected. Possible Breakout Ahead.\n\nResistance: {high15:.2f}\nMid: {mid15:.2f}\nSupport: {low15:.2f}")
                 already_sent.add(key_v)
-        call_cond = support_pe_call or mid_support_call or break_call
-        put_cond = upar_se_neeche_put or support_tod_put or mid_reject_put
-        if support_pe_call: reason = "Support pe Bullish Candle + RSI UP - Pehli GREEN Candle"
-        elif mid_support_call: reason = "Mid se Support + Bullish Candle + RSI UP"
-        elif break_call: reason = "Resistance Tod ke UPAR"
-        else: reason = "CALL"
-        if upar_se_neeche_put: reason_p = "Upar se Neeche - Bearish Candle + RSI DOWN"
-        elif support_tod_put: reason_p = "Support Tod ke NEECHE - PUT Rahegi"
-        elif mid_reject_put: reason_p = "Mid se Rejection - PUT"
-        else: reason_p = "PUT"
+        call_cond = support_pe_call or break_call or mid_support_call
+        put_cond = resistance_pe_put or break_put or mid_reject_put
+        if support_pe_call: reason = "Support Reversal | Bullish Candle + RSI Rising"
+        elif break_call: reason = "Resistance Breakout | Price Above Box High"
+        elif mid_support_call: reason = "Mid Level Support | Bullish Reversal"
+        else: reason = "Bullish Setup"
+        if resistance_pe_put: reason_p = "Resistance Rejection | Bearish Candle + RSI Falling"
+        elif break_put: reason_p = "Support Breakdown | Price Below Box Low"
+        elif mid_reject_put: reason_p = "Mid Level Rejection | Bearish Reversal"
+        else: reason_p = "Bearish Setup"
         if call_cond:
             key = f"{today}_{name}_CALL_{str(curr['Dt'])}"
             if key not in already_sent:
                 strike = get_strike(name, last_price)
                 sl = round(pl, 2)
-                tgt_pts = 100 if name=="NIFTY" else 200
+                tgt_pts = 50 if name=="NIFTY" else 100
                 target = round(last_price + tgt_pts, 2); profit_rs = tgt_pts * LOT[name]
-                msg = f"👑 CALL - V18 FINAL 👑\n📊 {name} - CALL\n📈 Box: High {high15:.2f} / Mid {mid15:.2f} / Low {low15:.2f}\n💥 {reason} ✅\n📊 RSI {rsi:.0f} UP ✅ | VWAP {vwap:.2f}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n💰 Entry {strike}-CE @ {last_price:.2f}\n🛑 SL: {sl} (Prev Candle Low)\n🎯 Target: {target} (+{tgt_pts} pts = +Rs {profit_rs})"
+                msg = f"CALL SIGNAL | {name}\n\nSetup: {reason}\n\nBox Levels\nHigh: {high15:.2f}\nMid: {mid15:.2f}\nLow: {low15:.2f}\n\nIndicators\nRSI: {rsi:.0f} (Rising)\nVWAP: {vwap:.2f}\nVolume: {'Above Average' if vol_strong else 'Normal'}\n\nTrade Details\nInstrument: {strike} CE\nEntry: {last_price:.2f}\nStop Loss: {sl}\nTarget: {target} (+{tgt_pts} pts)\nEst. P&L (1 Lot): +Rs {profit_rs}\n\nRisk Management Advised."
                 tg(msg); already_sent.add(key); daily_trades.append([name,"CALL",last_price,sl,target,tgt_pts,profit_rs]); return
         if put_cond:
             key = f"{today}_{name}_PUT_{str(curr['Dt'])}"
             if key not in already_sent:
                 strike = get_strike(name, last_price)
                 sl = round(ph, 2)
-                tgt_pts = 100 if name=="NIFTY" else 200
+                tgt_pts = 50 if name=="NIFTY" else 100
                 target = round(last_price - tgt_pts, 2); profit_rs = tgt_pts * LOT[name]
-                msg = f"👑 PUT - V18 FINAL 👑\n📊 {name} - PUT\n📉 Box: High {high15:.2f} / Mid {mid15:.2f} / Low {low15:.2f}\n💥 {reason_p} ✅\n📊 RSI {rsi:.0f} DOWN ✅ | VWAP {vwap:.2f}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n💰 Entry {strike}-PE @ {last_price:.2f}\n🛑 SL: {sl} (Prev Candle High)\n🎯 Target: {target} (-{tgt_pts} pts = +Rs {profit_rs})"
+                msg = f"PUT SIGNAL | {name}\n\nSetup: {reason_p}\n\nBox Levels\nHigh: {high15:.2f}\nMid: {mid15:.2f}\nLow: {low15:.2f}\n\nIndicators\nRSI: {rsi:.0f} (Falling)\nVWAP: {vwap:.2f}\nVolume: {'Above Average' if vol_strong else 'Normal'}\n\nTrade Details\nInstrument: {strike} PE\nEntry: {last_price:.2f}\nStop Loss: {sl}\nTarget: {target} (-{tgt_pts} pts)\nEst. P&L (1 Lot): +Rs {profit_rs}\n\nRisk Management Advised."
                 tg(msg); already_sent.add(key); daily_trades.append([name,"PUT",last_price,sl,target,tgt_pts,profit_rs]); return
     except Exception as e: print(name, e)
 def send_daily_report():
@@ -127,11 +129,11 @@ def send_daily_report():
         name,typ,entry,sl,target,pts,rs=t
         if name=="NIFTY": n_pts+=pts
         elif name=="SENSEX": s_pts+=pts
-        tot+=rs; lines+=f"{name} {typ}: +{pts} pts x {LOT[name]} = +Rs {rs}\n"
-    if not lines: lines="Aaj koi Trade nahi bana - NO TRADE\n"
-    tg(f"📊 V18 DAILY REPORT - FINAL 📊\n━━━━━━━━━━━━━━━━\n{lines}━━━━━━━━━━━━━━━━\nNIFTY Net: +{n_pts} pts\nSENSEX Net: +{s_pts} pts\nTOTAL: +Rs {tot} (1 Lot Each)")
-tg("✨ Option Bond 💥 V18 FINAL BOT ON ✨\n━━━━━━━━━━━━━━━━\n✅ FINAL LOCK V18\n📦 15m Box + 5m Trade\n📊 Upar se Neeche Bearish+RSI DOWN=PUT\n📊 Support Toda=PUT Rahegi\n📊 Support pe Pehli GREEN+RSI UP=CALL | SL=Prev Candle Low\n👀 NIFTY + SENSEX ONLY")
-print("BOT V18 FINAL STARTED", datetime.now(IST))
+        tot+=rs; lines+=f"{name} {typ}: +{pts} pts | +Rs {rs}\n"
+    if not lines: lines="No trades triggered today.\n"
+    tg(f"DAILY SUMMARY\n\n{lines}\nNIFTY Net: +{n_pts} pts\nSENSEX Net: +{s_pts} pts\nTotal P&L (1 Lot Each): +Rs {tot}")
+tg("BOT ACTIVATED | V19 LOCKED\n\nStrategy: 15m Box + 5m Entry\nRules:\n- Inside Support = CALL\n- Inside Resistance = PUT\n- Breakout Above = CALL\n- Breakdown Below = PUT\n\nInstruments: NIFTY, SENSEX")
+print("BOT V19 LOCKED STARTED", datetime.now(IST))
 start_time=time.time()
 while True:
     now=datetime.now(IST); is_day=(now.weekday()<5)
@@ -140,6 +142,6 @@ while True:
         for name,sym in SYMBOLS.items():
             check_one(name,sym); time.sleep(1)
     if is_day and now.hour==15 and now.minute>=15 and not exit_sent:
-        send_daily_report(); tg("✨ Option Bond 💥 EXIT ✨\n━━━━━━━━━━━━━━━━\n⏰ 3:15 HO GAYA\n❌ Trade Kaat Do"); exit_sent=True; break
+        send_daily_report(); tg("MARKET CLOSED | 3:15 PM\n\nTrading session ended.\nPlease close all open positions."); exit_sent=True; break
     if time.time()-start_time>30000: break
     time.sleep(60)
