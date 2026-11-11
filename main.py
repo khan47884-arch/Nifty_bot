@@ -73,22 +73,35 @@ def detect_chart_pattern(df5, high15, low15, box_range):
             if h2 > h1 and l2 > l1: return "Rising Channel"
         return "Box Range"
     except: return "Box Range"
+def detect_flip_retest(df5, high15, low15, box_range):
+    try:
+        d = df5.tail(12)
+        if len(d) < 5: return None, ""
+        tol = box_range*0.20
+        for i in range(len(d)-4, len(d)-1):
+            br = d.iloc[i]
+            rt = d.iloc[i+1] if i+1 < len(d) else None
+            cur = d.iloc[-1]
+            if rt is None: continue
+            if float(br['Close']) > high15 and abs(float(rt['Low']) - high15) <= tol and float(cur['Close']) > high15 and float(cur['Close']) > float(rt['Close']):
+                return "CALL", "Resistance Tod ke UPAR - Retest pe Support bana - CALL CONFIRM"
+            if float(br['Close']) < low15 and abs(float(rt['High']) - low15) <= tol and float(cur['Close']) < low15 and float(cur['Close']) < float(rt['Close']):
+                return "PUT", "Support Tod ke NEECHE - Retest pe Resistance bana - PUT CONFIRM"
+        return None, ""
+    except:
+        return None, ""
 def make_chart(df5, name, high15, low15, mid15, entry, sl, target, typ, candle_name, chart_pattern):
-    # Last 60 candles - jaise teri photo me hai
     d = df5.tail(60).copy().reset_index(drop=True)
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
     fig.patch.set_facecolor('white')
-    # Candles
     for i, row in d.iterrows():
         o, h, l, c = float(row['Open']), float(row['High']), float(row['Low']), float(row['Close'])
         col = 'green' if c >= o else 'red'
         ax1.plot([i, i], [l, h], color=col, linewidth=1)
         ax1.add_patch(plt.Rectangle((i-0.35, min(o, c)), 0.7, abs(c-o)+0.1, color=col, alpha=0.9))
-    # Box Levels - teri photo jaisi blue lines
     ax1.axhline(high15, color='blue', linewidth=1.5, linestyle='-', label=f'Resistance {high15:.1f}')
     ax1.axhline(low15, color='blue', linewidth=1.5, linestyle='-', label=f'Support {low15:.1f}')
     ax1.axhline(mid15, color='orange', linewidth=1, linestyle='--', label=f'Mid {mid15:.1f}')
-    # Entry / SL / Target - photo jaisa box
     ax1.axhline(entry, color='black', linewidth=1.5, linestyle='-', label=f'Entry {entry:.1f}')
     if typ == "CALL":
         ax1.axhline(target, color='green', linewidth=1.5, linestyle='--', label=f'Target {target:.1f}')
@@ -98,13 +111,11 @@ def make_chart(df5, name, high15, low15, mid15, entry, sl, target, typ, candle_n
         ax1.axhline(target, color='green', linewidth=1.5, linestyle='--', label=f'Target {target:.1f}')
         ax1.axhline(sl, color='red', linewidth=1.5, linestyle='--', label=f'SL {sl:.1f}')
         ax1.fill_between([-1, len(d)], target, sl, color='red', alpha=0.08)
-    # Last candle pe circle - teri photo wala yellow circle jaisa
     ax1.plot([len(d)-1], [entry], marker='o', markersize=14, markerfacecolor='none', markeredgecolor='orange', markeredgewidth=2)
     ax1.set_title(f"{name} 5m | {typ} | {candle_name} | {chart_pattern} | Entry {entry:.1f} SL {sl:.1f} Target {target:.1f}", fontsize=11, fontweight='bold')
     ax1.set_ylabel('Price')
     ax1.legend(loc='upper left', fontsize=8)
     ax1.grid(True, alpha=0.3)
-    # Volume neeche
     colors = ['green' if float(r['Close']) >= float(r['Open']) else 'red' for _, r in d.iterrows()]
     ax2.bar(range(len(d)), d['Volume'].values, color=colors, alpha=0.7)
     ax2.set_ylabel('Volume')
@@ -159,6 +170,7 @@ def check_one(name, sym):
         bullish = (bull_engulf or hammer or strong_bull or first_green) and rsi_up
         bearish = (bear_engulf or shoot_star or strong_bear or first_red) and rsi_down
         chart_pattern = detect_chart_pattern(df5, high15, low15, box_range)
+        flip_side, flip_reason = detect_flip_retest(df5, high15, low15, box_range)
         support_pe_call = l <= low15 + box_range*0.15 and last_price > low15 and bullish and last_price > o
         resistance_pe_put = h >= high15 - box_range*0.15 and last_price < high15 and bearish and last_price < o
         break_call = pc <= high15 and last_price > high15 and (bullish or last_price > o)
@@ -171,16 +183,25 @@ def check_one(name, sym):
             if key_v not in already_sent:
                 tg(f"💥 VOLUME BLAST - {name} 💥\n📊 Price: {last_price:.2f}\n📊 Volume: {vol_now:.0f} vs Avg {vol_avg:.0f} (2x+)\n⚠️ Taiyar Raho - Bada Move Aane Wala Hai\nResistance: {high15:.2f} / Mid: {mid15:.2f} / Support: {low15:.2f}")
                 already_sent.add(key_v)
-        call_cond = support_pe_call or break_call or mid_support_call
-        put_cond = resistance_pe_put or break_put or mid_reject_put
-        if support_pe_call: reason = "ANDAR Support pe Bullish + RSI UP - CALL"
-        elif break_call: reason = "BAHAR Resistance Tod ke UPAR - Breakout CALL"
-        elif mid_support_call: reason = "Mid se Support + Bullish - CALL"
-        else: reason = "CALL"
-        if resistance_pe_put: reason_p = "ANDAR Resistance pe Bearish + RSI DOWN - PUT"
-        elif break_put: reason_p = "BAHAR Support Tod ke NEECHE - Breakdown PUT"
-        elif mid_reject_put: reason_p = "Mid se Rejection - PUT"
-        else: reason_p = "PUT"
+        if flip_side == "CALL":
+            call_cond = True; put_cond = False
+            reason = flip_reason
+            reason_p = "PUT"
+        elif flip_side == "PUT":
+            call_cond = False; put_cond = True
+            reason = "CALL"
+            reason_p = flip_reason
+        else:
+            call_cond = support_pe_call or break_call or mid_support_call
+            put_cond = resistance_pe_put or break_put or mid_reject_put
+            if support_pe_call: reason = "ANDAR Support pe Bullish + RSI UP - CALL"
+            elif break_call: reason = "BAHAR Resistance Tod ke UPAR - Breakout CALL"
+            elif mid_support_call: reason = "Mid se Support + Bullish - CALL"
+            else: reason = "CALL"
+            if resistance_pe_put: reason_p = "ANDAR Resistance pe Bearish + RSI DOWN - PUT"
+            elif break_put: reason_p = "BAHAR Support Tod ke NEECHE - Breakdown PUT"
+            elif mid_reject_put: reason_p = "Mid se Rejection - PUT"
+            else: reason_p = "PUT"
         if call_cond:
             key = f"{today}_{name}_CALL_{str(curr['Dt'])}"
             if key not in already_sent:
@@ -188,7 +209,7 @@ def check_one(name, sym):
                 sl = round(pl, 2)
                 tgt_pts = 50 if name=="NIFTY" else 100
                 target = round(last_price + tgt_pts, 2); profit_rs = tgt_pts * LOT[name]
-                caption = f"👑 CALL - V19 LOCKED 👑\n📊 {name} - CALL\n📈 Box: High {high15:.2f} / Mid {mid15:.2f} / Low {low15:.2f}\n🕯️ Candle: {candle_name} ✅\n📐 Chart Pattern: {chart_pattern} ✅\n💥 {reason} ✅\n📊 RSI {rsi:.0f} UP ✅ | VWAP {vwap:.2f}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n💰 Entry {strike}-CE @ {last_price:.2f}\n🛑 SL: {sl} (Prev Candle Low)\n🎯 Target: {target} (+{tgt_pts} pts = +Rs {profit_rs})\n📸 Photo me dekh - Entry / SL / Target line bani hai"
+                caption = f"👑 CALL - V19 LOCKED + FLIP 👑\n📊 {name} - CALL\n📈 Box: High {high15:.2f} / Mid {mid15:.2f} / Low {low15:.2f}\n🕯️ Candle: {candle_name} ✅\n📐 Chart Pattern: {chart_pattern} ✅\n💥 {reason} ✅\n📊 RSI {rsi:.0f} UP ✅ | VWAP {vwap:.2f}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n💰 Entry {strike}-CE @ {last_price:.2f}\n🛑 SL: {sl} (Prev Candle Low)\n🎯 Target: {target} (+{tgt_pts} pts = +Rs {profit_rs})\n📸 Photo me dekh - Entry / SL / Target line bani hai"
                 img = make_chart(df5, name, high15, low15, mid15, last_price, sl, target, "CALL", candle_name, chart_pattern)
                 tg_photo(img, caption)
                 already_sent.add(key); daily_trades.append([name,"CALL",last_price,sl,target,tgt_pts,profit_rs]); return
@@ -199,7 +220,7 @@ def check_one(name, sym):
                 sl = round(ph, 2)
                 tgt_pts = 50 if name=="NIFTY" else 100
                 target = round(last_price - tgt_pts, 2); profit_rs = tgt_pts * LOT[name]
-                caption = f"👑 PUT - V19 LOCKED 👑\n📊 {name} - PUT\n📉 Box: High {high15:.2f} / Mid {mid15:.2f} / Low {low15:.2f}\n🕯️ Candle: {candle_name} ✅\n📐 Chart Pattern: {chart_pattern} ✅\n💥 {reason_p} ✅\n📊 RSI {rsi:.0f} DOWN ✅ | VWAP {vwap:.2f}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n💰 Entry {strike}-PE @ {last_price:.2f}\n🛑 SL: {sl} (Prev Candle High)\n🎯 Target: {target} (-{tgt_pts} pts = +Rs {profit_rs})\n📸 Photo me dekh - Entry / SL / Target line bani hai"
+                caption = f"👑 PUT - V19 LOCKED + FLIP 👑\n📊 {name} - PUT\n📉 Box: High {high15:.2f} / Mid {mid15:.2f} / Low {low15:.2f}\n🕯️ Candle: {candle_name} ✅\n📐 Chart Pattern: {chart_pattern} ✅\n💥 {reason_p} ✅\n📊 RSI {rsi:.0f} DOWN ✅ | VWAP {vwap:.2f}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n💰 Entry {strike}-PE @ {last_price:.2f}\n🛑 SL: {sl} (Prev Candle High)\n🎯 Target: {target} (-{tgt_pts} pts = +Rs {profit_rs})\n📸 Photo me dekh - Entry / SL / Target line bani hai"
                 img = make_chart(df5, name, high15, low15, mid15, last_price, sl, target, "PUT", candle_name, chart_pattern)
                 tg_photo(img, caption)
                 already_sent.add(key); daily_trades.append([name,"PUT",last_price,sl,target,tgt_pts,profit_rs]); return
@@ -213,8 +234,8 @@ def send_daily_report():
         tot+=rs; lines+=f"{name} {typ}: +{pts} pts x {LOT[name]} = +Rs {rs}\n"
     if not lines: lines="Aaj koi Trade nahi bana - NO TRADE\n"
     tg(f"📊 V19 DAILY REPORT - LOCKED 📊\n━━━━━━━━━━━━━━━━\n{lines}━━━━━━━━━━━━━━━━\nNIFTY Net: +{n_pts} pts\nSENSEX Net: +{s_pts} pts\nTOTAL: +Rs {tot} (1 Lot Each)")
-tg("✨ Option Bond 💥 V19 LOCKED BOT ON ✨\n━━━━━━━━━━━━━━━━\n✅ FINAL LOCK V19\n📦 15m Box + 5m Entry\n📊 Andar Support=CALL | Andar Resistance=PUT\n📊 Bahar Upar Toda=CALL | Bahar Neeche Toda=PUT\n📸 Ab Har Signal PHOTO ke saath aayega\n👀 NIFTY + SENSEX ONLY")
-print("BOT V19 LOCKED STARTED", datetime.now(IST))
+tg("✨ Option Bond 💥 V19 LOCKED + FLIP BOT ON ✨\n━━━━━━━━━━━━━━━━\n✅ FINAL LOCK V19 + FLIP\n📦 15m Box + 5m Entry\n📊 Andar Support=CALL | Andar Resistance=PUT\n📊 Bahar Upar Toda=CALL | Bahar Neeche Toda=PUT\n🔄 FLIP: Resistance->Support=CALL | Support->Resistance=PUT | Retest Confirm\n📸 Ab Har Signal PHOTO ke saath aayega\n👀 NIFTY + SENSEX ONLY")
+print("BOT V19 LOCKED + FLIP STARTED", datetime.now(IST))
 start_time=time.time()
 while True:
     now=datetime.now(IST); is_day=(now.weekday()<5)
