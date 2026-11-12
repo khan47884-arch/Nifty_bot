@@ -129,6 +129,33 @@ def detect_index_breakout(df5):
         print("Index Box Fail", e)
         return None, None, None, ""
 
+def detect_support_resistance(df5):
+    try:
+        data = df5.reset_index(drop=True)
+        if len(data) < 25: return None, None, None, ""
+        curr = data.iloc[-1]
+        curr_low = float(curr['Low'])
+        curr_high = float(curr['High'])
+        curr_close = float(curr['Close'])
+        # Last 25 candle me se Support = sabse bada Swing Low, Resistance = sabse bada Swing High
+        look = data.iloc[-26:-1]
+        support = float(look['Low'].min())
+        resistance = float(look['High'].max())
+        # Support ke paas tolerance - price ke 0.15% andar
+        tol = curr_close * 0.0015
+        # SUPPORT BOUNCE - Low ne Support ko touch kiya + Close Support se upar
+        if abs(curr_low - support) <= tol or (curr_low <= support + tol and curr_close > support):
+            if curr_close > support and curr_low <= support + tol:
+                return "CALL", resistance, support, f"Support {support:.0f} se Bounce + Bullish Candle - Pic jaisa Support se UPAR"
+        # RESISTANCE REJECTION - High ne Resistance ko touch kiya + Close Resistance se neeche
+        if abs(curr_high - resistance) <= tol or (curr_high >= resistance - tol and curr_close < resistance):
+            if curr_close < resistance and curr_high >= resistance - tol:
+                return "PUT", resistance, support, f"Resistance {resistance:.0f} se Rejection + Bearish Candle - Resistance se NEECHE"
+        return None, resistance, support, ""
+    except Exception as e:
+        print("Support Fail", e)
+        return None, None, None, ""
+
 def make_index_chart(df5, name, box_high, box_low, entry, typ, candle_name):
     d = df5.tail(60).copy().reset_index(drop=True)
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
@@ -139,12 +166,12 @@ def make_index_chart(df5, name, box_high, box_low, entry, typ, candle_name):
         ax1.plot([i, i], [l, h], color=col, linewidth=1)
         ax1.add_patch(plt.Rectangle((i-0.35, min(o, c)), 0.7, abs(c-o)+0.1, color=col, alpha=0.9))
     if box_high is not None and box_low is not None:
-        ax1.axhline(box_high, color='blue', linewidth=1.5, linestyle='-', label=f'Box High {box_high:.1f}')
-        ax1.axhline(box_low, color='blue', linewidth=1.5, linestyle='-', label=f'Box Low {box_low:.1f}')
+        ax1.axhline(box_high, color='blue', linewidth=1.5, linestyle='-', label=f'Box High / Resistance {box_high:.1f}')
+        ax1.axhline(box_low, color='green', linewidth=1.5, linestyle='-', label=f'Box Low / Support {box_low:.1f}')
         ax1.fill_between([-1, len(d)], box_low, box_high, color='orange', alpha=0.12)
-    ax1.axhline(entry, color='black', linewidth=1.5, linestyle='-', label=f'Breakout {entry:.1f}')
+    ax1.axhline(entry, color='black', linewidth=1.5, linestyle='-', label=f'Entry {entry:.1f}')
     ax1.plot([len(d)-1], [entry], marker='o', markersize=14, markerfacecolor='none', markeredgecolor='orange', markeredgewidth=2)
-    ax1.set_title(f"{name} 5m | {typ} | {candle_name} | Box Breakout", fontsize=11, fontweight='bold')
+    ax1.set_title(f"{name} 5m | {typ} | {candle_name} | Breakout", fontsize=11, fontweight='bold')
     ax1.set_ylabel('Price')
     ax1.legend(loc='upper left', fontsize=8)
     ax1.grid(True, alpha=0.3)
@@ -206,22 +233,40 @@ def check_index(name, sym):
         else: candle_name = "Normal Candle"
         bullish = (bull_engulf or hammer or strong_bull or first_green)
         bearish = (bear_engulf or shoot_star or strong_bear or first_red)
+        # 1. PEHLE BOX BREAKOUT CHECK
         side, box_high, box_low, reason = detect_index_breakout(df5)
+        # 2. AGAR BOX NAHI TO SUPPORT / RESISTANCE CHECK - PIC JAISA
+        is_support = False
+        if side is None:
+            side2, res2, sup2, reason2 = detect_support_resistance(df5)
+            if side2 is not None:
+                side = side2
+                box_high = res2
+                box_low = sup2
+                reason = reason2
+                is_support = True
         if side is None: return
-        if side == "CALL" and not (ema_vwap_up and rsi_up): return
-        if side == "PUT" and not (ema_vwap_down and rsi_down): return
+        # Support wale me VWAP/EMA thoda loose - Support se bounce me VWAP neeche bhi chalega
+        if not is_support:
+            if side == "CALL" and not (ema_vwap_up and rsi_up): return
+            if side == "PUT" and not (ema_vwap_down and rsi_down): return
+        else:
+            if side == "CALL" and not (rsi_up or last_price > ema9): return
+            if side == "PUT" and not (rsi_down or last_price < ema9): return
         if side == "CALL" and not bullish and last_price <= o: return
         if side == "PUT" and not bearish and last_price >= o: return
         candle_key = str(curr['Datetime'].strftime("%Y-%m-%d_%H:%M"))
         strike = get_index_strike(name, last_price)
         if side == "CALL":
             SIGNAL_COUNT += 1
-            caption = f"👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━━━\n\n📦 BOX READY - BREAKOUT CONFIRM\n\n🟢 CALL - {strike}-CE\n\n📊 15m Trend: UP\n📊 RSI: {rsi:.0f} - Momentum Strong\n✅ EMA 9 Verify - Candle EMA ke UPAR CLOSE\n✅ VWAP se UPAR - Buyer Full Control\n🕯️ Candle: {candle_name}\n📐 Pattern: Move + Consolidation + Breakout\n💥 {reason}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n\n💰 Entry: {strike}-CE\n━━━━━━━━━━━━━━━━━━"
+            tag = "SUPPORT BOUNCE" if is_support else "BOX BREAKOUT"
+            caption = f"👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━━━\n\n📦 {tag} - CONFIRM\n\n🟢 CALL - {strike}-CE\n\n📊 15m Trend: UP\n📊 RSI: {rsi:.0f} - Momentum Strong\n✅ EMA 9 Verify - Candle EMA ke UPAR CLOSE\n✅ VWAP se UPAR - Buyer Full Control\n🕯️ Candle: {candle_name}\n📐 Pattern: Move + Consolidation + Breakout\n💥 {reason}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n\n💰 Entry: {strike}-CE\n━━━━━━━━━━━━━━━━━━"
             img = make_index_chart(df5, name, box_high, box_low, last_price, "CALL", candle_name)
             send_telegram_photo(img, caption, f"{candle_key}_{name}_INDEX_CALL")
         if side == "PUT":
             SIGNAL_COUNT += 1
-            caption = f"👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━━━\n\n📦 BOX READY - BREAKOUT CONFIRM\n\n🔴 PUT - {strike}-PE\n\n📊 15m Trend: DOWN\n📊 RSI: {rsi:.0f} - Momentum Strong\n✅ EMA 9 Verify - Candle EMA ke NEECHE CLOSE\n✅ VWAP se NEECHE - Seller Full Control\n🕯️ Candle: {candle_name}\n📐 Pattern: Move + Consolidation + Breakout\n💥 {reason}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n\n💰 Entry: {strike}-PE\n━━━━━━━━━━━━━━━━━━"
+            tag = "RESISTANCE REJECTION" if is_support else "BOX BREAKOUT"
+            caption = f"👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━━━\n\n📦 {tag} - CONFIRM\n\n🔴 PUT - {strike}-PE\n\n📊 15m Trend: DOWN\n📊 RSI: {rsi:.0f} - Momentum Strong\n✅ EMA 9 Verify - Candle EMA ke NEECHE CLOSE\n✅ VWAP se NEECHE - Seller Full Control\n🕯️ Candle: {candle_name}\n📐 Pattern: Move + Consolidation + Breakout\n💥 {reason}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n\n💰 Entry: {strike}-PE\n━━━━━━━━━━━━━━━━━━"
             img = make_index_chart(df5, name, box_high, box_low, last_price, "PUT", candle_name)
             send_telegram_photo(img, caption, f"{candle_key}_{name}_INDEX_PUT")
     except Exception as e:
