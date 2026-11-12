@@ -21,8 +21,8 @@ def tg_photo(photo_bytes, caption):
         r = requests.post(f"https://api.telegram.org/bot{BOT}/sendPhoto", data={"chat_id": CHAT, "caption": caption}, files=files, timeout=30)
         print("TG PHOTO:", r.status_code, r.text[:200])
     except Exception as e: print("TG Photo Fail", e)
-SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
-LOT = {"NIFTY": 65, "SENSEX": 20}
+SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN", "BANKNIFTY": "^NSEBANK"}
+LOT = {"NIFTY": 65, "SENSEX": 20, "BANKNIFTY": 30}
 already_sent = set()
 daily_trades = []
 exit_sent = False
@@ -56,6 +56,7 @@ def get_15m_levels(sym):
 def get_strike(name, entry):
     if name=="NIFTY": return int(round(entry/50)*50)
     if name=="SENSEX": return int(round(entry/100)*100)
+    if name=="BANKNIFTY": return int(round(entry/100)*100)
     return int(round(entry/5)*5)
 def detect_chart_pattern(df5, high15, low15, box_range):
     try:
@@ -90,7 +91,7 @@ def detect_flip_retest(df5, high15, low15, box_range):
         return None, ""
     except:
         return None, ""
-def make_chart(df5, name, high15, low15, mid15, entry, sl, target, typ, candle_name, chart_pattern):
+def make_chart(df5, name, high15, low15, mid15, entry, typ, candle_name, chart_pattern):
     d = df5.tail(60).copy().reset_index(drop=True)
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
     fig.patch.set_facecolor('white')
@@ -103,16 +104,8 @@ def make_chart(df5, name, high15, low15, mid15, entry, sl, target, typ, candle_n
     ax1.axhline(low15, color='blue', linewidth=1.5, linestyle='-', label=f'Support {low15:.1f}')
     ax1.axhline(mid15, color='orange', linewidth=1, linestyle='--', label=f'Mid {mid15:.1f}')
     ax1.axhline(entry, color='black', linewidth=1.5, linestyle='-', label=f'Entry {entry:.1f}')
-    if typ == "CALL":
-        ax1.axhline(target, color='green', linewidth=1.5, linestyle='--', label=f'Target {target:.1f}')
-        ax1.axhline(sl, color='red', linewidth=1.5, linestyle='--', label=f'SL {sl:.1f}')
-        ax1.fill_between([-1, len(d)], sl, target, color='green', alpha=0.08)
-    else:
-        ax1.axhline(target, color='green', linewidth=1.5, linestyle='--', label=f'Target {target:.1f}')
-        ax1.axhline(sl, color='red', linewidth=1.5, linestyle='--', label=f'SL {sl:.1f}')
-        ax1.fill_between([-1, len(d)], target, sl, color='red', alpha=0.08)
     ax1.plot([len(d)-1], [entry], marker='o', markersize=14, markerfacecolor='none', markeredgecolor='orange', markeredgewidth=2)
-    ax1.set_title(f"{name} 5m | {typ} | {candle_name} | {chart_pattern} | Entry {entry:.1f} SL {sl:.1f} Target {target:.1f}", fontsize=11, fontweight='bold')
+    ax1.set_title(f"{name} 5m | {typ} | {candle_name} | {chart_pattern} | Entry {entry:.1f}", fontsize=11, fontweight='bold')
     ax1.set_ylabel('Price')
     ax1.legend(loc='upper left', fontsize=8)
     ax1.grid(True, alpha=0.3)
@@ -137,17 +130,20 @@ def check_one(name, sym):
         df5 = clean_df(df5); df5 = df5[df5['Dt'].dt.date==today]
         if len(df5) < 30: return
         df5["VWAP"] = calc_vwap(df5)
+        df5["EMA9"] = df5["Close"].ewm(span=9, adjust=False).mean()
         df5["AvgVol"] = df5["Volume"].rolling(window=20).mean()
         df5["RSI"] = calc_rsi(df5["Close"])
         curr = df5.iloc[-1]; prev_c = df5.iloc[-2]
         o = float(curr['Open']); h = float(curr['High']); l = float(curr['Low']); last_price = float(curr['Close'])
         po = float(prev_c['Open']); pc = float(prev_c['Close']); ph = float(prev_c['High']); pl = float(prev_c['Low'])
-        vwap = float(curr['VWAP']); vol_now = float(curr['Volume']); vol_avg = float(curr['AvgVol']) if not pd.isna(curr['AvgVol']) else vol_now
+        vwap = float(curr['VWAP']); ema9 = float(curr['EMA9']); vol_now = float(curr['Volume']); vol_avg = float(curr['AvgVol']) if not pd.isna(curr['AvgVol']) else vol_now
         vol_strong = vol_now > vol_avg * 1.2
         rsi = float(curr['RSI']) if not pd.isna(curr['RSI']) else 50
         rsi_prev = float(df5.iloc[-2]['RSI']) if not pd.isna(df5.iloc[-2]['RSI']) else 50
         rsi_up = rsi > rsi_prev
         rsi_down = rsi < rsi_prev
+        ema_vwap_up = last_price > ema9 and last_price > vwap
+        ema_vwap_down = last_price < ema9 and last_price < vwap
         body = abs(last_price - o)
         rng = h - l if h > l else 1
         bull_engulf = pc < po and last_price > o and last_price > po and o < pc
@@ -192,8 +188,8 @@ def check_one(name, sym):
             reason = "CALL"
             reason_p = flip_reason
         else:
-            call_cond = support_pe_call or break_call or mid_support_call
-            put_cond = resistance_pe_put or break_put or mid_reject_put
+            call_cond = (support_pe_call or break_call or mid_support_call) and ema_vwap_up
+            put_cond = (resistance_pe_put or break_put or mid_reject_put) and ema_vwap_down
             if support_pe_call: reason = "ANDAR Support pe Bullish + RSI UP - CALL"
             elif break_call: reason = "BAHAR Resistance Tod ke UPAR - Breakout CALL"
             elif mid_support_call: reason = "Mid se Support + Bullish - CALL"
@@ -206,36 +202,28 @@ def check_one(name, sym):
             key = f"{today}_{name}_CALL_{str(curr['Dt'])}"
             if key not in already_sent:
                 strike = get_strike(name, last_price)
-                sl = round(pl, 2)
-                tgt_pts = 50 if name=="NIFTY" else 100
-                target = round(last_price + tgt_pts, 2); profit_rs = tgt_pts * LOT[name]
-                caption = f"👑 CALL - V19 LOCKED + FLIP 👑\n📊 {name} - CALL\n📈 Box: High {high15:.2f} / Mid {mid15:.2f} / Low {low15:.2f}\n🕯️ Candle: {candle_name} ✅\n📐 Chart Pattern: {chart_pattern} ✅\n💥 {reason} ✅\n📊 RSI {rsi:.0f} UP ✅ | VWAP {vwap:.2f}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n💰 Entry {strike}-CE @ {last_price:.2f}\n🛑 SL: {sl} (Prev Candle Low)\n🎯 Target: {target} (+{tgt_pts} pts = +Rs {profit_rs})\n📸 Photo me dekh - Entry / SL / Target line bani hai"
-                img = make_chart(df5, name, high15, low15, mid15, last_price, sl, target, "CALL", candle_name, chart_pattern)
+                caption = f"👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━━━\n\n📦 BOX READY - BREAKOUT CONFIRM\n\n🟢 CALL - {strike}-CE\n\n📊 15m Trend: UP\n📊 RSI: {rsi:.0f} - Momentum Strong\n✅ EMA 9 Verify - Candle EMA ke UPAR CLOSE\n✅ VWAP se UPAR - Buyer Full Control\n🕯️ Candle: {candle_name}\n📐 Pattern: {chart_pattern}\n💥 {reason}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n\n💰 Entry: {strike}-CE\n━━━━━━━━━━━━━━━━━━"
+                img = make_chart(df5, name, high15, low15, mid15, last_price, "CALL", candle_name, chart_pattern)
                 tg_photo(img, caption)
-                already_sent.add(key); daily_trades.append([name,"CALL",last_price,sl,target,tgt_pts,profit_rs]); return
+                already_sent.add(key); daily_trades.append([name,"CALL",last_price]); return
         if put_cond:
             key = f"{today}_{name}_PUT_{str(curr['Dt'])}"
             if key not in already_sent:
                 strike = get_strike(name, last_price)
-                sl = round(ph, 2)
-                tgt_pts = 50 if name=="NIFTY" else 100
-                target = round(last_price - tgt_pts, 2); profit_rs = tgt_pts * LOT[name]
-                caption = f"👑 PUT - V19 LOCKED + FLIP 👑\n📊 {name} - PUT\n📉 Box: High {high15:.2f} / Mid {mid15:.2f} / Low {low15:.2f}\n🕯️ Candle: {candle_name} ✅\n📐 Chart Pattern: {chart_pattern} ✅\n💥 {reason_p} ✅\n📊 RSI {rsi:.0f} DOWN ✅ | VWAP {vwap:.2f}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n💰 Entry {strike}-PE @ {last_price:.2f}\n🛑 SL: {sl} (Prev Candle High)\n🎯 Target: {target} (-{tgt_pts} pts = +Rs {profit_rs})\n📸 Photo me dekh - Entry / SL / Target line bani hai"
-                img = make_chart(df5, name, high15, low15, mid15, last_price, sl, target, "PUT", candle_name, chart_pattern)
+                caption = f"👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━━━\n\n📦 BOX READY - BREAKOUT CONFIRM\n\n🔴 PUT - {strike}-PE\n\n📊 15m Trend: DOWN\n📊 RSI: {rsi:.0f} - Momentum Strong\n✅ EMA 9 Verify - Candle EMA ke NEECHE CLOSE\n✅ VWAP se NEECHE - Seller Full Control\n🕯️ Candle: {candle_name}\n📐 Pattern: {chart_pattern}\n💥 {reason_p}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n\n💰 Entry: {strike}-PE\n━━━━━━━━━━━━━━━━━━"
+                img = make_chart(df5, name, high15, low15, mid15, last_price, "PUT", candle_name, chart_pattern)
                 tg_photo(img, caption)
-                already_sent.add(key); daily_trades.append([name,"PUT",last_price,sl,target,tgt_pts,profit_rs]); return
+                already_sent.add(key); daily_trades.append([name,"PUT",last_price]); return
     except Exception as e: print(name, e)
 def send_daily_report():
-    n_pts=0; s_pts=0; tot=0; lines=""
+    lines=""
     for t in daily_trades:
-        name,typ,entry,sl,target,pts,rs=t
-        if name=="NIFTY": n_pts+=pts
-        elif name=="SENSEX": s_pts+=pts
-        tot+=rs; lines+=f"{name} {typ}: +{pts} pts x {LOT[name]} = +Rs {rs}\n"
+        name,typ,entry=t
+        lines+=f"{name} {typ} @ {entry:.2f}\n"
     if not lines: lines="Aaj koi Trade nahi bana - NO TRADE\n"
-    tg(f"📊 V19 DAILY REPORT - LOCKED 📊\n━━━━━━━━━━━━━━━━\n{lines}━━━━━━━━━━━━━━━━\nNIFTY Net: +{n_pts} pts\nSENSEX Net: +{s_pts} pts\nTOTAL: +Rs {tot} (1 Lot Each)")
-tg("✨ Option Bond 💥 V19 LOCKED + FLIP BOT ON ✨\n━━━━━━━━━━━━━━━━\n✅ FINAL LOCK V19 + FLIP\n📦 15m Box + 5m Entry\n📊 Andar Support=CALL | Andar Resistance=PUT\n📊 Bahar Upar Toda=CALL | Bahar Neeche Toda=PUT\n🔄 FLIP: Resistance->Support=CALL | Support->Resistance=PUT | Retest Confirm\n📸 Ab Har Signal PHOTO ke saath aayega\n👀 NIFTY + SENSEX ONLY")
-print("BOT V19 LOCKED + FLIP STARTED", datetime.now(IST))
+    tg(f"📊 KHAN SAHAB / KOHINOOR - DAILY REPORT 📊\n━━━━━━━━━━━━━━━━\n{lines}━━━━━━━━━━━━━━━━\nTotal Trades: {len(daily_trades)}")
+tg("👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━\n✅ KHAN SAHAB FORMAT LOCKED\n📦 15m Box + 5m Entry\n📊 EMA 9 Verify + VWAP Confirm\n📊 RSI Confirm\n❌ NO SL / NO TARGET - Sirf Strike Price\n📸 Har Signal PHOTO ke saath\n👀 NIFTY + SENSEX + BANKNIFTY ONLY")
+print("BOT KHAN SAHAB FORMAT STARTED", datetime.now(IST))
 start_time=time.time()
 while True:
     now=datetime.now(IST); is_day=(now.weekday()<5)
@@ -244,6 +232,6 @@ while True:
         for name,sym in SYMBOLS.items():
             check_one(name,sym); time.sleep(1)
     if is_day and now.hour==15 and now.minute>=15 and not exit_sent:
-        send_daily_report(); tg("✨ Option Bond 💥 EXIT ✨\n━━━━━━━━━━━━━━━━\n⏰ 3:15 HO GAYA\n❌ Trade Kaat Do"); exit_sent=True; break
+        send_daily_report(); tg("👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━\n⏰ 3:15 HO GAYA\n❌ Trade Kaat Do"); exit_sent=True; break
     if time.time()-start_time>30000: break
     time.sleep(60)
