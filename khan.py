@@ -1,279 +1,168 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import requests
-import os
-import io
+import requests, os, time, io
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from datetime import datetime, time
+from datetime import datetime
 import pytz
+
 IST = pytz.timezone('Asia/Kolkata')
+BOT = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT = os.getenv("TELEGRAM_CHAT_ID")
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
-INDEX_SYMBOLS = {"SENSEX": "^BSESN", "BANKNIFTY": "^NSEBANK"}
-
-SENT_FILE = "sent.txt"
-
-def load_sent():
-    if os.path.exists(SENT_FILE):
-        with open(SENT_FILE) as f:
-            return set(f.read().splitlines())
-    return set()
-
-def save_sent(key):
-    with open(SENT_FILE, "a") as f:
-        f.write(key + "\n")
-
-def send_telegram(msg, key=None):
-    if key:
-        sent = load_sent()
-        if key in sent:
-            return False
-    if not BOT_TOKEN or not CHAT_ID:
-        print(msg)
-        return False
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+def tg(m):
     try:
-        r = requests.post(url, json={"chat_id": CHAT_ID, "text": msg}, timeout=10)
-        if r.status_code == 200:
-            if key:
-                save_sent(key)
-            return True
-    except Exception as e:
-        print("Telegram Error:", e)
-    return False
+        requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data={"chat_id": CHAT, "text": m}, timeout=20)
+    except Exception as e: print("TG ERR", e)
 
-def send_telegram_photo(photo_bytes, caption, key=None):
-    if key:
-        sent = load_sent()
-        if key in sent:
-            return False
-    if not BOT_TOKEN or not CHAT_ID:
-        print(caption)
-        return False
+def tg_photo(photo_bytes, caption):
     try:
         files = {'photo': ('chart.png', photo_bytes, 'image/png')}
-        r = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", data={"chat_id": CHAT_ID, "caption": caption}, files=files, timeout=30)
-        print("TG PHOTO:", r.status_code)
-        if r.status_code == 200 and key:
-            save_sent(key)
-            return True
-    except Exception as e:
-        print("TG Photo Fail", e)
-    return False
+        requests.post(f"https://api.telegram.org/bot{BOT}/sendPhoto", data={"chat_id": CHAT, "caption": caption}, files=files, timeout=30)
+    except Exception as e: print("PHOTO ERR", e)
 
-def calc_rsi(series, period=14):
-    delta = series.diff()
-    gain = delta.where(delta > 0, 0).rolling(period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
-    rs = gain / (loss + 1e-9)
-    return 100 - (100 / (1 + rs))
-
-def calc_vwap(df):
-    tp = (df['High'] + df['Low'] + df['Close']) / 3
-    return (tp * df['Volume']).cumsum() / (df['Volume'].cumsum() + 1e-9)
+SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
+already_sent = set()
+daily_trades = []
+exit_sent = False
 
 def clean_df(df):
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     df = df.reset_index()
-    df['Datetime'] = pd.to_datetime(df['Datetime'])
-    try:
-        df['Datetime'] = df['Datetime'].dt.tz_convert('Asia/Kolkata').dt.tz_localize(None)
+    df['Dt'] = pd.to_datetime(df.iloc[:,0])
+    try: df['Dt'] = df['Dt'].dt.tz_convert('Asia/Kolkata').dt.tz_localize(None)
     except: pass
     return df
 
-def get_index_strike(name, entry):
+def calc_rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0).rolling(window=period).mean()
+    loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
+    rs = gain / loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
+
+def get_15m_box(sym):
+    try:
+        today = datetime.now(IST).date()
+        df15 = yf.download(sym, period="2d", interval="15m", progress=False, auto_adjust=True)
+        df15 = clean_df(df15); df15 = df15[df15['Dt'].dt.date==today]
+        if len(df15) < 1: return None, None
+        first = df15.iloc[0]
+        return float(first['High']), float(first['Low'])
+    except: return None, None
+
+def get_strike(name, entry):
+    if name=="NIFTY": return int(round(entry/50)*50)
     if name=="SENSEX": return int(round(entry/100)*100)
-    if name=="BANKNIFTY": return int(round(entry/100)*100)
     return int(round(entry/5)*5)
 
-def detect_index_breakout(df5):
-    try:
-        if len(df5) < 20: return None, None, None, ""
-        data = df5.reset_index(drop=True)
-        curr = data.iloc[-1]
-        curr_close = float(curr['Close'])
-        for box_len in [8, 7, 6, 5]:
-            box = data.iloc[-1-box_len:-1]
-            if len(box) < 5: continue
-            box_high = float(box['High'].max())
-            box_low = float(box['Low'].min())
-            box_range = box_high - box_low
-            if box_range <= 0: continue
-            before = data.iloc[-1-box_len-8:-1-box_len]
-            if len(before) < 5: continue
-            move_high = float(before['High'].max())
-            move_low = float(before['Low'].min())
-            move_range = move_high - move_low
-            if move_range < box_range * 1.8: continue
-            if box_range > move_range * 0.5: continue
-            move_start = float(before.iloc[0]['Close'])
-            move_end = float(before.iloc[-1]['Close'])
-            move_up = move_end > move_start
-            if curr_close > box_high and move_up:
-                return "CALL", box_high, box_low, f"Pehla Move UP + Box {box_low:.0f}-{box_high:.0f} me Ruka + Box Tod ke UPAR Breakout"
-            if curr_close < box_low and not move_up:
-                return "PUT", box_high, box_low, f"Pehla Move DOWN + Box {box_low:.0f}-{box_high:.0f} me Ruka + Box Tod ke NEECHE Breakdown"
-            if curr_close > box_high:
-                return "CALL", box_high, box_low, f"Box {box_low:.0f}-{box_high:.0f} me Consolidation + Box Tod ke UPAR Breakout"
-            if curr_close < box_low:
-                return "PUT", box_high, box_low, f"Box {box_low:.0f}-{box_high:.0f} me Consolidation + Box Tod ke NEECHE Breakdown"
-            return None, box_high, box_low, ""
-        return None, None, None, ""
-    except Exception as e:
-        print("Index Box Fail", e)
-        return None, None, None, ""
-
-def detect_support_resistance(df5):
-    try:
-        data = df5.reset_index(drop=True)
-        if len(data) < 25: return None, None, None, ""
-        curr = data.iloc[-1]
-        curr_low = float(curr['Low'])
-        curr_high = float(curr['High'])
-        curr_close = float(curr['Close'])
-        # Last 25 candle me se Support = sabse bada Swing Low, Resistance = sabse bada Swing High
-        look = data.iloc[-26:-1]
-        support = float(look['Low'].min())
-        resistance = float(look['High'].max())
-        # Support ke paas tolerance - price ke 0.15% andar
-        tol = curr_close * 0.0015
-        # SUPPORT BOUNCE - Low ne Support ko touch kiya + Close Support se upar
-        if abs(curr_low - support) <= tol or (curr_low <= support + tol and curr_close > support):
-            if curr_close > support and curr_low <= support + tol:
-                return "CALL", resistance, support, f"Support {support:.0f} se Bounce + Bullish Candle - Pic jaisa Support se UPAR"
-        # RESISTANCE REJECTION - High ne Resistance ko touch kiya + Close Resistance se neeche
-        if abs(curr_high - resistance) <= tol or (curr_high >= resistance - tol and curr_close < resistance):
-            if curr_close < resistance and curr_high >= resistance - tol:
-                return "PUT", resistance, support, f"Resistance {resistance:.0f} se Rejection + Bearish Candle - Resistance se NEECHE"
-        return None, resistance, support, ""
-    except Exception as e:
-        print("Support Fail", e)
-        return None, None, None, ""
-
-def make_index_chart(df5, name, box_high, box_low, entry, typ, candle_name):
+def make_chart(df5, name, top, bottom, entry, typ):
     d = df5.tail(60).copy().reset_index(drop=True)
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
-    fig.patch.set_facecolor('white')
+    fig, ax1 = plt.subplots(figsize=(10, 6))
     for i, row in d.iterrows():
         o, h, l, c = float(row['Open']), float(row['High']), float(row['Low']), float(row['Close'])
         col = 'green' if c >= o else 'red'
         ax1.plot([i, i], [l, h], color=col, linewidth=1)
         ax1.add_patch(plt.Rectangle((i-0.35, min(o, c)), 0.7, abs(c-o)+0.1, color=col, alpha=0.9))
-    if box_high is not None and box_low is not None:
-        ax1.axhline(box_high, color='blue', linewidth=1.5, linestyle='-', label=f'Box High / Resistance {box_high:.1f}')
-        ax1.axhline(box_low, color='green', linewidth=1.5, linestyle='-', label=f'Box Low / Support {box_low:.1f}')
-        ax1.fill_between([-1, len(d)], box_low, box_high, color='orange', alpha=0.12)
-    ax1.axhline(entry, color='black', linewidth=1.5, linestyle='-', label=f'Entry {entry:.1f}')
-    ax1.plot([len(d)-1], [entry], marker='o', markersize=14, markerfacecolor='none', markeredgecolor='orange', markeredgewidth=2)
-    ax1.set_title(f"{name} 5m | {typ} | {candle_name} | Breakout", fontsize=11, fontweight='bold')
-    ax1.set_ylabel('Price')
+    ax1.plot(d['EMA9'].values, color='orange', linewidth=1.2, label='EMA 9')
+    ax1.plot(d['EMA20'].values, color='purple', linewidth=1.2, label='EMA 20')
+    ax1.axhline(top, color='blue', linewidth=1.5, label=f'BOX TOP {top:.1f}')
+    ax1.axhline(bottom, color='blue', linewidth=1.5, label=f'BOX BOTTOM {bottom:.1f}')
+    ax1.axhline(entry, color='black', linewidth=1.5, label=f'Entry {entry:.1f}')
+    ax1.set_title(f"{name} 5m | {typ} | RECLAIM + HAMMER | Entry {entry:.1f}", fontsize=11, fontweight='bold')
     ax1.legend(loc='upper left', fontsize=8)
     ax1.grid(True, alpha=0.3)
-    colors = ['green' if float(r['Close']) >= float(r['Open']) else 'red' for _, r in d.iterrows()]
-    ax2.bar(range(len(d)), d['Volume'].values, color=colors, alpha=0.7)
-    ax2.set_ylabel('Volume')
-    ax2.grid(True, alpha=0.3)
     plt.tight_layout()
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=150)
-    plt.close()
-    buf.seek(0)
+    buf = io.BytesIO(); plt.savefig(buf, format='png', dpi=150); plt.close(); buf.seek(0)
     return buf.getvalue()
 
-SIGNAL_COUNT = 0
+def is_hammer(row):
+    o,h,l,c = float(row['Open']), float(row['High']), float(row['Low']), float(row['Close'])
+    body = abs(c-o)
+    lower = min(o,c) - l
+    upper = h - max(o,c)
+    if body == 0: body = 0.5
+    return lower > 1.5*body and upper < body
 
-def check_index(name, sym):
-    global SIGNAL_COUNT
+def is_shooting(row):
+    o,h,l,c = float(row['Open']), float(row['High']), float(row['Low']), float(row['Close'])
+    body = abs(c-o)
+    lower = min(o,c) - l
+    upper = h - max(o,c)
+    if body == 0: body = 0.5
+    return upper > 1.5*body and lower < body
+
+def check_one(name, sym):
     try:
-        df5 = yf.download(sym, period="2d", interval="5m", progress=False, auto_adjust=False)
-        if df5.empty or len(df5) < 30: return
-        df5 = clean_df(df5)
-        today = datetime.now(IST).date()
-        df5 = df5[df5['Datetime'].dt.date == today].copy()
-        if len(df5) < 30: return
-        df5['VWAP'] = calc_vwap(df5)
-        df5['EMA9'] = df5['Close'].ewm(span=9, adjust=False).mean()
-        df5['AvgVol'] = df5['Volume'].rolling(window=20).mean()
-        df5['RSI'] = calc_rsi(df5['Close'], 14)
-        curr = df5.iloc[-1]; prev_c = df5.iloc[-2]
-        o = float(curr['Open']); last_price = float(curr['Close'])
-        po = float(prev_c['Open']); pc = float(prev_c['Close'])
-        vwap = float(curr['VWAP']); ema9 = float(curr['EMA9']); vol_now = float(curr['Volume']); vol_avg = float(curr['AvgVol']) if not np.isnan(curr['AvgVol']) else vol_now
-        vol_strong = vol_now > vol_avg * 1.2
-        rsi = float(curr['RSI']) if not np.isnan(curr['RSI']) else 50
-        rsi_prev = float(df5.iloc[-2]['RSI']) if not np.isnan(df5.iloc[-2]['RSI']) else 50
-        rsi_up = rsi > rsi_prev
-        rsi_down = rsi < rsi_prev
-        ema_vwap_up = last_price > ema9 and last_price > vwap
-        ema_vwap_down = last_price < ema9 and last_price < vwap
-        body = abs(last_price - o)
-        h = float(curr['High']); l = float(curr['Low']); rng = h - l if h > l else 1
-        bull_engulf = pc < po and last_price > o and last_price > po and o < pc
-        bear_engulf = pc > po and last_price < o and last_price < po and o > pc
-        hammer = (min(o, last_price) - l) > 2 * body and body > 0
-        shoot_star = (h - max(o, last_price)) > 2 * body and body > 0
-        strong_bull = last_price > o and body > rng * 0.6
-        strong_bear = last_price < o and body > rng * 0.6
-        first_green = last_price > o and pc < po
-        first_red = last_price < o and pc > po
-        if bull_engulf: candle_name = "Bullish Engulfing"
-        elif bear_engulf: candle_name = "Bearish Engulfing"
-        elif hammer: candle_name = "Hammer"
-        elif shoot_star: candle_name = "Shooting Star"
-        elif strong_bull: candle_name = "Strong Bull Candle"
-        elif strong_bear: candle_name = "Strong Bear Candle"
-        elif first_green: candle_name = "First Green Candle"
-        elif first_red: candle_name = "First Red Candle"
-        else: candle_name = "Normal Candle"
-        bullish = (bull_engulf or hammer or strong_bull or first_green)
-        bearish = (bear_engulf or shoot_star or strong_bear or first_red)
-        # 1. PEHLE BOX BREAKOUT CHECK
-        side, box_high, box_low, reason = detect_index_breakout(df5)
-        # 2. AGAR BOX NAHI TO SUPPORT / RESISTANCE CHECK - PIC JAISA
-        is_support = False
-        if side is None:
-            side2, res2, sup2, reason2 = detect_support_resistance(df5)
-            if side2 is not None:
-                side = side2
-                box_high = res2
-                box_low = sup2
-                reason = reason2
-                is_support = True
-        if side is None: return
-        # Support wale me VWAP/EMA thoda loose - Support se bounce me VWAP neeche bhi chalega
-        if not is_support:
-            if side == "CALL" and not (ema_vwap_up and rsi_up): return
-            if side == "PUT" and not (ema_vwap_down and rsi_down): return
-        else:
-            if side == "CALL" and not (rsi_up or last_price > ema9): return
-            if side == "PUT" and not (rsi_down or last_price < ema9): return
-        if side == "CALL" and not bullish and last_price <= o: return
-        if side == "PUT" and not bearish and last_price >= o: return
-        candle_key = str(curr['Datetime'].strftime("%Y-%m-%d_%H:%M"))
-        strike = get_index_strike(name, last_price)
-        if side == "CALL":
-            SIGNAL_COUNT += 1
-            tag = "SUPPORT BOUNCE" if is_support else "BOX BREAKOUT"
-            caption = f"👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━━━\n\n📦 {tag} - CONFIRM\n\n🟢 CALL - {strike}-CE\n\n📊 15m Trend: UP\n📊 RSI: {rsi:.0f} - Momentum Strong\n✅ EMA 9 Verify - Candle EMA ke UPAR CLOSE\n✅ VWAP se UPAR - Buyer Full Control\n🕯️ Candle: {candle_name}\n📐 Pattern: Move + Consolidation + Breakout\n💥 {reason}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n\n💰 Entry: {strike}-CE\n━━━━━━━━━━━━━━━━━━"
-            img = make_index_chart(df5, name, box_high, box_low, last_price, "CALL", candle_name)
-            send_telegram_photo(img, caption, f"{candle_key}_{name}_INDEX_CALL")
-        if side == "PUT":
-            SIGNAL_COUNT += 1
-            tag = "RESISTANCE REJECTION" if is_support else "BOX BREAKOUT"
-            caption = f"👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━━━\n\n📦 {tag} - CONFIRM\n\n🔴 PUT - {strike}-PE\n\n📊 15m Trend: DOWN\n📊 RSI: {rsi:.0f} - Momentum Strong\n✅ EMA 9 Verify - Candle EMA ke NEECHE CLOSE\n✅ VWAP se NEECHE - Seller Full Control\n🕯️ Candle: {candle_name}\n📐 Pattern: Move + Consolidation + Breakout\n💥 {reason}\n📊 Volume {'TEZ' if vol_strong else 'OK'} ✅\n\n💰 Entry: {strike}-PE\n━━━━━━━━━━━━━━━━━━"
-            img = make_index_chart(df5, name, box_high, box_low, last_price, "PUT", candle_name)
-            send_telegram_photo(img, caption, f"{candle_key}_{name}_INDEX_PUT")
-    except Exception as e:
-        print(f"Error Index {name}: {e}")
+        top, bottom = get_15m_box(sym)
+        if top is None: return
+        now = datetime.now(IST)
+        if now.hour == 9 and now.minute < 30:
+            return
+        today = now.date()
+        df5 = yf.download(sym, period="2d", interval="5m", progress=False, auto_adjust=True)
+        df5 = clean_df(df5); df5 = df5[df5['Dt'].dt.date==today]
+        if len(df5) < 5: return
+        df5["EMA9"] = df5["Close"].ewm(span=9, adjust=False).mean()
+        df5["EMA20"] = df5["Close"].ewm(span=20, adjust=False).mean()
+        df5["RSI"] = calc_rsi(df5["Close"])
+        curr = df5.iloc[-1]; prev_c = df5.iloc[-2]; prev2 = df5.iloc[-3]
+        last_price = float(curr['Close']); pc = float(prev_c['Close'])
+        ema9 = float(curr['EMA9']); ema20 = float(curr['EMA20'])
+        rsi = float(curr['RSI']) if not pd.isna(curr['RSI']) else 50
+        body = abs(float(curr['Close']) - float(curr['Open']))
+        is_green = float(curr['Close']) > float(curr['Open'])
+        is_red = float(curr['Close']) < float(curr['Open'])
 
-if __name__ == "__main__":
-    print("Khan Sahab Started -", datetime.now(IST))
-    for name, sym in INDEX_SYMBOLS.items():
-        check_index(name, sym)
-    print("Done - Total Signal:", SIGNAL_COUNT)
+        # CALL: Support toda -> Hammer -> Pullback pe Support ke UPAR + Green Candle + RSI > 50
+        support_broken_then_reclaim = float(prev2['Low']) < bottom or float(prev_c['Low']) < bottom
+        hammer_near = is_hammer(prev_c) or is_hammer(prev2) or is_hammer(curr)
+        call_trigger = support_broken_then_reclaim and last_price > bottom and pc <= bottom + 5 and last_price > ema9 and is_green and rsi > 50 and (hammer_near or body > 5)
+        call_breakout = pc <= top and last_price > top and is_green and rsi > 50 and last_price > ema9
+
+        # PUT: Resistance toda -> Shooting Star -> Pullback pe Resistance ke NEECHE + Red Candle + RSI < 50
+        resistance_broken_then_reclaim = float(prev2['High']) > top or float(prev_c['High']) > top
+        shooting_near = is_shooting(prev_c) or is_shooting(prev2) or is_shooting(curr)
+        put_trigger = resistance_broken_then_reclaim and last_price < top and pc >= top - 5 and last_price < ema9 and is_red and rsi < 50 and (shooting_near or body > 5)
+        put_breakdown = pc >= bottom and last_price < bottom and is_red and rsi < 50 and last_price < ema9
+
+        if call_trigger or call_breakout:
+            key = f"{today}_{name}_CALL_{str(curr['Dt'])}"
+            if key not in already_sent:
+                strike = get_strike(name, last_price)
+                sl = round(bottom - 5, 1) if call_trigger else round(top - 5, 1)
+                caption = f"👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━━━\n\n📦 SUPPORT RECLAIM + HAMMER\n\n🟢 CALL - {strike}-CE\n\n📊 Price: {last_price:.2f}\n📊 Box TOP: {top:.2f} | BOTTOM: {bottom:.2f}\n📊 EMA 9: {ema9:.1f} | EMA 20: {ema20:.1f}\n📊 RSI: {rsi:.0f}\n\n💰 Entry: {strike}-CE\n🛑 SL: {sl}\n🎯 Target: {round(last_price + (last_price - sl)*2, 1)}\n━━━━━━━━━━━━━━━━━━"
+                tg_photo(make_chart(df5, name, top, bottom, last_price, "CALL"), caption)
+                already_sent.add(key); daily_trades.append([name,"CALL",last_price]); return
+        if put_trigger or put_breakdown:
+            key = f"{today}_{name}_PUT_{str(curr['Dt'])}"
+            if key not in already_sent:
+                strike = get_strike(name, last_price)
+                sl = round(top + 5, 1) if put_trigger else round(bottom + 5, 1)
+                caption = f"👑👑 Khan Sahab/Kohinoor 👑👑\n━━━━━━━━━━━━━━━━━━\n\n📦 RESISTANCE RECLAIM + SHOOTING\n\n🔴 PUT - {strike}-PE\n\n📊 Price: {last_price:.2f}\n📊 Box TOP: {top:.2f} | BOTTOM: {bottom:.2f}\n📊 EMA 9: {ema9:.1f} | EMA 20: {ema20:.1f}\n📊 RSI: {rsi:.0f}\n\n💰 Entry: {strike}-PE\n🛑 SL: {sl}\n🎯 Target: {round(last_price - (sl - last_price)*2, 1)}\n━━━━━━━━━━━━━━━━━━"
+                tg_photo(make_chart(df5, name, top, bottom, last_price, "PUT"), caption)
+                already_sent.add(key); daily_trades.append([name,"PUT",last_price]); return
+    except Exception as e: print(name, e)
+
+print("BOT STARTED - NIFTY + SENSEX - RECLAIM + HAMMER", datetime.now(IST))
+tg("✅ BOT STARTED - NIFTY + SENSEX\nSUPPORT RECLAIM + HAMMER + RSI\nCROSSOVER ka wait nahi - Mauke pe signal")
+start_time=time.time()
+while True:
+    try:
+        now=datetime.now(IST); is_day=(now.weekday()<5)
+        is_market=is_day and ((now.hour==9 and now.minute>=30) or (now.hour>9 and now.hour<15) or (now.hour==15 and now.minute<=15))
+        if is_market:
+            for name,sym in SYMBOLS.items():
+                check_one(name,sym); time.sleep(1)
+        if is_day and now.hour==15 and now.minute>=15 and not exit_sent:
+            lines=""
+            for t in daily_trades: lines+=f"{t[0]} {t[1]} @ {t[2]:.2f}\n"
+            if not lines: lines="Aaj koi Trade nahi bana - NO TRADE\n"
+            tg(f"📊 DAILY REPORT 📊\n{lines}Total: {len(daily_trades)}")
+            exit_sent=True; break
+        if time.time()-start_time>30000: break
+        time.sleep(30)
+    except Exception as e:
+        print("Loop Error", e); time.sleep(30)
