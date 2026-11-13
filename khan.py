@@ -27,6 +27,7 @@ SYMBOLS = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
 already_sent = set()
 daily_trades = []
 exit_sent = False
+last_day = None
 
 def clean_df(df):
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
@@ -116,13 +117,13 @@ def check_one(name, sym):
         is_green = float(curr['Close']) > float(curr['Open'])
         is_red = float(curr['Close']) < float(curr['Open'])
 
-        # CALL: Support toda -> Hammer -> Pullback pe Support ke UPAR + Green Candle + RSI > 50
+        # CALL: Support pe Hammer / Bullish candle + Upar Closing
         support_broken_then_reclaim = float(prev2['Low']) < bottom or float(prev_c['Low']) < bottom
         hammer_near = is_hammer(prev_c) or is_hammer(prev2) or is_hammer(curr)
         call_trigger = support_broken_then_reclaim and last_price > bottom and pc <= bottom + 5 and last_price > ema9 and is_green and rsi > 50 and (hammer_near or body > 5)
         call_breakout = pc <= top and last_price > top and is_green and rsi > 50 and last_price > ema9
 
-        # PUT: Resistance toda -> Shooting Star -> Pullback pe Resistance ke NEECHE + Red Candle + RSI < 50
+        # PUT: Resistance pe Shooting / Bearish candle + Neeche Closing
         resistance_broken_then_reclaim = float(prev2['High']) > top or float(prev_c['High']) > top
         shooting_near = is_shooting(prev_c) or is_shooting(prev2) or is_shooting(curr)
         put_trigger = resistance_broken_then_reclaim and last_price < top and pc >= top - 5 and last_price < ema9 and is_red and rsi < 50 and (shooting_near or body > 5)
@@ -146,23 +147,43 @@ def check_one(name, sym):
                 already_sent.add(key); daily_trades.append([name,"PUT",last_price]); return
     except Exception as e: print(name, e)
 
-print("BOT STARTED - NIFTY + SENSEX - RECLAIM + HAMMER", datetime.now(IST))
-tg("✅ BOT STARTED - NIFTY + SENSEX\nSUPPORT RECLAIM + HAMMER + RSI\nCROSSOVER ka wait nahi - Mauke pe signal")
-start_time=time.time()
+print("BOT STARTED - AUTO MODE", datetime.now(IST))
+tg("✅ BOT STARTED - AUTO MODE\nRoz subah khud chalega, chhutti pe band rahega")
+
 while True:
     try:
-        now=datetime.now(IST); is_day=(now.weekday()<5)
-        is_market=is_day and ((now.hour==9 and now.minute>=30) or (now.hour>9 and now.hour<15) or (now.hour==15 and now.minute<=15))
+        now = datetime.now(IST)
+        today = now.date()
+
+        # Roz naya din aaye to reset
+        if last_day != today:
+            already_sent.clear()
+            daily_trades.clear()
+            exit_sent = False
+            last_day = today
+            print("NEW DAY RESET", today)
+
+        is_weekday = now.weekday() < 5
+        is_market = is_weekday and ((now.hour==9 and now.minute>=30) or (now.hour>9 and now.hour<15) or (now.hour==15 and now.minute<=15))
+
         if is_market:
             for name,sym in SYMBOLS.items():
                 check_one(name,sym); time.sleep(1)
-        if is_day and now.hour==15 and now.minute>=15 and not exit_sent:
+
+        if is_weekday and now.hour==15 and now.minute>=15 and not exit_sent:
             lines=""
             for t in daily_trades: lines+=f"{t[0]} {t[1]} @ {t[2]:.2f}\n"
             if not lines: lines="Aaj koi Trade nahi bana - NO TRADE\n"
             tg(f"📊 DAILY REPORT 📊\n{lines}Total: {len(daily_trades)}")
-            exit_sent=True; break
-        if time.time()-start_time>30000: break
-        time.sleep(30)
+            exit_sent=True
+
+        if not is_weekday:
+            print("WEEKEND - SLEEPING", now)
+            time.sleep(3600)
+        elif not is_market:
+            time.sleep(60)
+        else:
+            time.sleep(30)
+
     except Exception as e:
         print("Loop Error", e); time.sleep(30)
