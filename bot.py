@@ -1,122 +1,138 @@
-import yfinance as yf, pytz, requests, os
+import os, requests, yfinance as yf
+import pandas as pd, numpy as np
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
+import pytz
 
-BOT = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT = os.getenv("TELEGRAM_CHAT_ID")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-def tg(m):
+STOCKS = {
+"RELIANCE":"RELIANCE.NS","HDFCBANK":"HDFCBANK.NS","ICICIBANK":"ICICIBANK.NS","SBIN":"SBIN.NS",
+"TCS":"TCS.NS","INFY":"INFY.NS","HCLTECH":"HCLTECH.NS","WIPRO":"WIPRO.NS","TECHM":"TECHM.NS",
+"LTIM":"LTIM.NS","PERSISTENT":"PERSISTENT.NS","COFORGE":"COFORGE.NS","MPHASIS":"MPHASIS.NS",
+"BHEL":"BHEL.NS","BEL":"BEL.NS","HAL":"HAL.NS","MAZAGON":"MAZDOCK.NS","COCHINSHIP":"COCHINSHIP.NS",
+"BDL":"BDL.NS","GRSE":"GRSE.NS","PARAS":"PARAS.NS","LT":"LT.NS","TITAN":"TITAN.NS",
+"ADANIENT":"ADANIENT.NS","ADANIPORTS":"ADANIPORTS.NS","ADANIGREEN":"ADANIGREEN.NS",
+"ADANIENERGY":"ADANIENSOL.NS","ADANIPOWER":"ADANIPOWER.NS","TMPV":"TMPV.NS","TMCV":"TMCV.NS",
+"TATASTEEL":"TATASTEEL.NS","JSWSTEEL":"JSWSTEEL.NS","JINDALSTEEL":"JINDALSTEL.NS","SAIL":"SAIL.NS",
+"NMDC":"NMDC.NS","HINDALCO":"HINDALCO.NS","VEDL":"VEDL.NS","COALINDIA":"COALINDIA.NS",
+"BHARTIARTL":"BHARTIARTL.NS","JIOFIN":"JIOFIN.NS","ITC":"ITC.NS","BAJAJFINSV":"BAJAJFINSV.NS",
+"BAJAJFINANCE":"BAJAJFINANCE.NS","BAJAJAUTO":"BAJAJ-AUTO.NS","MARUTI":"MARUTI.NS","M&M":"M&M.NS",
+"HEROMOTOCO":"HEROMOTOCO.NS","EICHERMOT":"EICHERMOT.NS","TVSMOTOR":"TVSMOTOR.NS","ASHOKLEY":"ASHOKLEY.NS",
+"ONGC":"ONGC.NS","OIL":"OIL.NS","GAIL":"GAIL.NS","BPCL":"BPCL.NS","HPCL":"HPCL.NS","IOC":"IOC.NS",
+"PETRONET":"PETRONET.NS","NTPC":"NTPC.NS","POWERGRID":"POWERGRID.NS","TATAPOWER":"TATAPOWER.NS",
+"JSWENERGY":"JSWENERGY.NS","NHPC":"NHPC.NS","SJVN":"SJVN.NS","HUDCO":"HUDCO.NS","NBCC":"NBCC.NS",
+"IRFC":"IRFC.NS","RVNL":"RVNL.NS","IRCTC":"IRCTC.NS","LIC":"LICI.NS","HDFCLIFE":"HDFCLIFE.NS",
+"SBILIFE":"SBILIFE.NS","ICICIPRULI":"ICICIPRULI.NS","SHRIRAMFIN":"SHRIRAMFIN.NS","CHOLAFIN":"CHOLAFIN.NS",
+"MUTHOOTFIN":"MUTHOOTFIN.NS","TRENT":"TRENT.NS","DMART":"DMART.NS","TATACONSUM":"TATACONSUM.NS",
+"TATACHEM":"TATACHEM.NS","TATAELXSI":"TATAELXSI.NS","CIPLA":"CIPLA.NS","SUNPHARMA":"SUNPHARMA.NS",
+"DRREDDY":"DRREDDY.NS","DIVIS":"DIVISLAB.NS","LUPIN":"LUPIN.NS","AUROPHARMA":"AUROPHARMA.NS",
+"APOLLOHOSP":"APOLLOHOSP.NS","MAXHEALTH":"MAXHEALTH.NS","ZYDUSLIFE":"ZYDUSLIFE.NS",
+"DABUR":"DABUR.NS","GODREJCP":"GODREJCP.NS","MARICO":"MARICO.NS","BRITANNIA":"BRITANNIA.NS",
+"NESTLEIND":"NESTLEIND.NS","HINDUNILVR":"HINDUNILVR.NS","COLPAL":"COLPAL.NS","PIDILITE":"PIDILITE.NS",
+"ASIANPAINT":"ASIANPAINT.NS","BERGERPAINT":"BERGERPAINT.NS","ULTRACEMCO":"ULTRACEMCO.NS","GRASIM":"GRASIM.NS",
+"ETERNAL":"ETERNAL.NS","PAYTM":"PAYTM.NS","OFSS":"OFSS.NS",
+}
+
+def send(msg):
+    if not TOKEN or not CHAT_ID: return
     try:
-        ist = pytz.timezone('Asia/Kolkata')
-        s = datetime.now(ist).strftime("%d-%b %I:%M %p IST")
-        requests.post(
-            f"https://api.telegram.org/bot{BOT}/sendMessage",
-            data={"chat_id": CHAT, "text": f"{m}\n\nSTAMP:{s}\nV1.0 MOMENTUM"},
-            timeout=30
-        )
-    except:
-        pass
+        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=30)
+    except Exception as e: print("TG ERR", e)
 
-STOCKS = ["HDFCBANK.NS","ICICIBANK.NS","SBIN.NS","M&M.NS","TMPV.NS","TITAN.NS","RELIANCE.NS","INFY.NS","TCS.NS","LT.NS","AXISBANK.NS","KOTAKBANK.NS","BAJFINANCE.NS","MARUTI.NS","EICHERMOT.NS","BAJAJ-AUTO.NS","HEROMOTOCO.NS","TVSMOTOR.NS","ULTRACEMCO.NS","GRASIM.NS","ASIANPAINT.NS","SUNPHARMA.NS","CIPLA.NS","DIVISLAB.NS","TATASTEEL.NS","JSWSTEEL.NS","HINDALCO.NS","ONGC.NS","NTPC.NS","POWERGRID.NS","TATAPOWER.NS","COALINDIA.NS","BEL.NS","HAL.NS","DLF.NS","GODREJPROP.NS","TRENT.NS","DMART.NS","ZOMATO.NS","PAYTM.NS","INDIGO.NS","VEDL.NS","BPCL.NS","IOC.NS","GAIL.NS","HCLTECH.NS","WIPRO.NS","TECHM.NS","LTIM.NS","SBILIFE.NS","HDFCLIFE.NS"]
+def rsi_calc(s, p=14):
+    d = s.diff(); up = d.where(d>0,0); dn = -d.where(d<0,0)
+    rs = up.ewm(alpha=1/p, adjust=False).mean() / dn.ewm(alpha=1/p, adjust=False).mean()
+    return 100 - (100/(1+rs))
 
-def chk(s):
-    try:
-        df = yf.download(s, period="6mo", interval="1d", progress=False, auto_adjust=True)
-        if len(df) < 60:
-            return None
-        df.columns = [x[0] if isinstance(x, tuple) else x for x in df.columns]
-        c = df['Close'].iloc[-1]
-        vol = df['Volume'].iloc[-1]
-        if (c * vol) < 50000000:
-            return None
-        ema10 = df['Close'].ewm(span=10).mean().iloc[-1]
-        ema20 = df['Close'].ewm(span=20).mean().iloc[-1]
-        ema50 = df['Close'].ewm(span=50).mean().iloc[-1]
-        if not (c > ema10 > ema20 > ema50):
-            return None
-        delta = df['Close'].diff()
-        gain = delta.clip(lower=0).rolling(14).mean()
-        loss = -delta.clip(upper=0).rolling(14).mean()
-        rs = gain.iloc[-1] / max(loss.iloc[-1], 0.01)
-        rsi = 100 - (100 / (1 + rs))
-        if rsi < 50 or rsi > 68:
-            return None
-        tr = (df['High'] - df['Low']).rolling(14).mean().iloc[-1]
-        atr_pct = (tr / c) * 100
-        if atr_pct < 1.0 or atr_pct > 3.5:
-            return None
-        high5 = df['High'].iloc[-6:-1].max()
-        dist_high = ((high5 - c) / high5) * 100
-        if dist_high > 1.5:
-            return None
-        va = df['Volume'].iloc[-20:-1].mean()
-        vol_x = vol / max(va, 1)
-        if vol_x < 1.2:
-            return None
-        box_low = df['Low'].iloc[-21:-1].min()
-        box_high = df['High'].iloc[-21:-1].max()
-        if c <= box_high:
-            return None
-        score = 0
-        if rsi >= 55 and rsi <= 65: score += 3
-        if vol_x > 1.8: score += 3
-        elif vol_x > 1.5: score += 2
-        if atr_pct >= 1.5 and atr_pct <= 2.5: score += 2
-        if dist_high < 0.5: score += 2
-        if score < 6:
-            return None
-        sl = box_low * 0.98
-        risk = c - sl
-        t1 = c + risk * 2
-        t2 = c + risk * 3.5
-        qty = int(25000 / c)
-        if qty < 1: qty = 1
-        return {"symbol": s.replace(".NS",""), "c": c, "rsi": rsi, "atr": atr_pct, "score": score, "vol_x": vol_x, "sl": sl, "t1": t1, "t2": t2, "qty": qty, "box_low": box_low, "box_high": box_high}
-    except:
-        return None
+def atr_calc(df, p=14):
+    h=df["High"]; l=df["Low"]; c=df["Close"]
+    tr=pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1/p, adjust=False).mean()
 
-with ThreadPoolExecutor(max_workers=8) as ex:
-    res = [x for x in ex.map(chk, STOCKS) if x]
+def main():
+    ist = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(ist).strftime("%d %b %Y, %I:%M %p")
+    rows=[]
+    for name, sym in STOCKS.items():
+        try:
+            df = yf.download(sym, period="1y", interval="1d", progress=False, auto_adjust=True)
+            if df.empty or len(df)<210: continue
+            if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+            c=df["Close"]; v=df["Volume"]
+            close=float(c.iloc[-1]); prev=float(c.iloc[-2])
+            chg1=(close-prev)/prev*100
+            chg5=float((c.iloc[-1]-c.iloc[-6])/c.iloc[-6]*100)
+            chg20=float((c.iloc[-1]-c.iloc[-21])/c.iloc[-21]*100)
+            r=float(rsi_calc(c).iloc[-1])
+            e20=float(c.ewm(span=20, adjust=False).mean().iloc[-1])
+            e50=float(c.ewm(span=50, adjust=False).mean().iloc[-1])
+            e200=float(c.ewm(span=200, adjust=False).mean().iloc[-1])
+            roc10=float((c.iloc[-1]-c.iloc[-11])/c.iloc[-11]*100)
+            roc20=float((c.iloc[-1]-c.iloc[-21])/c.iloc[-21]*100)
+            ema12=c.ewm(span=12, adjust=False).mean(); ema26=c.ewm(span=26, adjust=False).mean()
+            macd=ema12-ema26; sig=macd.ewm(span=9, adjust=False).mean()
+            macd_val=float(macd.iloc[-1]); sig_val=float(sig.iloc[-1]); hist=macd_val-sig_val
+            macd_up=macd_val>sig_val
+            macd_cross= float(macd.iloc[-2])<=float(sig.iloc[-2]) and macd_up
+            rvol=float(v.iloc[-1]/v.tail(20).mean()) if float(v.tail(20).mean())>0 else 0
+            high52=float(c.max()); dist52=(close-high52)/high52*100
+            high20=float(c.tail(20).max()); breakout=close>=high20*0.998
+            atr=float(atr_calc(df).iloc[-1])
+            sl=close-1.5*atr; tgt1=close+2*atr; tgt2=close+3.5*atr
+            above_all=close>e20 and close>e50 and close>e200
+            score=0
+            if chg1>0: score+=1
+            if chg5>2: score+=1
+            if chg20>5: score+=1
+            if 55<=r<=70: score+=2
+            elif 50<r<55: score+=1
+            if close>e20: score+=1
+            if close>e50: score+=1
+            if close>e200: score+=1
+            if macd_up: score+=1
+            if rvol>=1.5: score+=1
+            if breakout: score+=1
+            if roc10>0: score+=1
+            if score>=9 and above_all and rvol>=1.2: stage="💎 PLATINUM"; tag="ADVANCE"
+            elif score>=7 and close>e20 and close>e50 and macd_up: stage="🚀 ADVANCE"; tag="ADVANCE"
+            elif close>e20 and 45<=r<=55 and abs(close-e20)/e20*100<2: stage="🟡 ACCUMULATION"; tag="ACCUMULATION"
+            elif r>=72 and dist52>-2: stage="🟠 DISTRIBUTION"; tag="DISTRIBUTION"
+            elif close<e20 and not macd_up: stage="🔴 DECLINE"; tag="DECLINE"
+            else: stage="⚪ SIDEWAYS"; tag="SIDEWAYS"
+            rows.append({"n":name,"cl":close,"chg":chg1,"chg5":chg5,"chg20":chg20,"rsi":r,"e20":e20,"e50":e50,"e200":e200,"roc":roc10,"roc20":roc20,"macd_up":macd_up,"cross":macd_cross,"hist":hist,"rvol":rvol,"dist52":dist52,"break":breakout,"atr":atr,"sl":sl,"t1":tgt1,"t2":tgt2,"score":score,"stage":stage,"tag":tag,"above":above_all})
+        except Exception as e:
+            print(sym, e); continue
+    if not rows:
+        send(f"⚠️ MOMENTUM PRO - {now}\nData nahi aaya."); return
+    adv=sorted([x for x in rows if x["tag"]=="ADVANCE"], key=lambda x: (x["score"], x["rvol"]), reverse=True)
+    acc=sorted([x for x in rows if x["tag"]=="ACCUMULATION"], key=lambda x: x["rvol"], reverse=True)
+    dist=[x for x in rows if x["tag"]=="DISTRIBUTION"]
+    dec=sorted([x for x in rows if x["tag"]=="DECLINE"], key=lambda x: x["chg"])
+    m1=f"<b>🔥 MOMENTUM PRO - SWING - {now}</b>\n\n<b>💎 PLATINUM + 🚀 ADVANCE - Best Swing (Top 15)</b>\n"
+    for x in adv[:15]:
+        br="🔥BRK " if x["break"] else ""
+        cr="⚡MACD-X " if x["cross"] else ""
+        m1+=f"{x['stage']} {x['n']} ₹{x['cl']:.0f} ({x['chg']:+.1f}% | 5D {x['chg5']:+.1f}%) RSI {x['rsi']:.0f} ROC {x['roc']:+.1f}% RVOL {x['rvol']:.1f}x {br}{cr}Score {x['score']}/13\n SL ₹{x['sl']:.0f} | T1 ₹{x['t1']:.0f} | T2 ₹{x['t2']:.0f}\n"
+    if not adv: m1+="Aaj koi ADVANCE nahi - WAIT karo\n"
+    send(m1)
+    m2=f"<b>🟡 ACCUMULATION - Nazar Rakho (Top 10)</b>\n"
+    for x in acc[:10]:
+        m2+=f"🟡 {x['n']} ₹{x['cl']:.0f} ({x['chg']:+.1f}%) RSI {x['rsi']:.0f} RVOL {x['rvol']:.1f}x 52H se {x['dist52']:.1f}%\n"
+    if not acc: m2+="Koi Accumulation nahi hai\n"
+    m2+=f"\n<b>🟠 DISTRIBUTION - Profit Booking</b>\n"
+    for x in dist: m2+=f"🟠 {x['n']} ₹{x['cl']:.0f} RSI {x['rsi']:.0f} 52H se {x['dist52']:.1f}%\n"
+    if not dist: m2+="Koi Distribution nahi\n"
+    m2+=f"\n<b>🔴 DECLINE - Bach Ke (Top 8)</b>\n"
+    for x in dec[:8]: m2+=f"🔴 {x['n']} ₹{x['cl']:.0f} ({x['chg']:+.1f}%) RSI {x['rsi']:.0f}\n"
+    m2+=f"\n<b>Rule:</b> PLATINUM/ADVANCE + RVOL 1.5x+ + RSI 55-70 + 20/50/200 ke upar = Best Swing. SL = 1.5x ATR. DISTRIBUTION me naya Swing mat lena."
+    send(m2)
+    m3=f"<b>📋 FULL 100 - % Change List</b>\n"
+    for x in sorted(rows, key=lambda y: y["chg"], reverse=True):
+        e="🟢" if x["chg"]>=0 else "🔴"
+        m3+=f"{e} {x['n']} ₹{x['cl']:.0f} ({x['chg']:+.1f}%) RSI {x['rsi']:.0f}\n"
+    for i in range(0, len(m3), 3800):
+        send(m3[i:i+3800])
+    print(f"DONE {len(rows)} ADV {len(adv)} ACC {len(acc)}")
 
-res.sort(key=lambda x: x["score"], reverse=True)
-
-if not res:
-    tg("👑👑 Khan Sahab/Kohinoor 👑👑\n___________________________\n\n📦 DAILY BREAKOUT - NO SETUP\n\nAaj koi Momentum setup nahi, paisa bach gaya.\nKal 3:30 pe fir scan hoga.")
-else:
-    top = res[0]
-    msg1 = f"""👑👑 Khan Sahab/Kohinoor 👑👑
-___________________________
-
-🔥 KAL KA SECTOR - NAZAR RAKHO
-
-No.1 Sector: {top['symbol']} wala Sector - Aaj sabse tez bhaga
-Nazar Rakhne Wale Sher:
-1. {top['symbol']} - 5 Din High ke paas hai
-2. Baaki sher kal ke scan me aayenge
-
-Baaki sector me kal haath mat lagana"""
-    msg2 = f"""👑👑 Khan Sahab/Kohinoor 👑👑
-___________________________
-
-📦 DAILY BREAKOUT - CONFIRM
-
-🟢 STOCK - {top['symbol']}
-
-📊 Daily Trend: UP
-📊 RSI: {top['rsi']:.0f} - Momentum Strong
-✅ EMA 10 > 20 > 50 Verify - Candle EMA ke UPAR CLOSE
-✅ VWAP se UPAR - Buyer Full Control
-🕯️ Candle: Strong Bull Candle
-📐 Pattern: Move + Consolidation + Breakout
-💥 Box {top['box_low']:.0f}-{top['box_high']:.0f} me Consolidation + Box Tod ke UPAR Breakout
-📊 Volume OK ✅ x{top['vol_x']:.1f}
-
-💰 Entry: {top['c']:.0f}
-🛑 SL: {top['sl']:.0f}
-🎯 Target 1: {top['t1']:.0f} - 2-3 Din me
-🎯 Target 2: {top['t2']:.0f} - 4-5 Din me
-⏰ TIME STOP: 3 Din me Target 1 na aaye to EXIT
-📦 Qty: {top['qty']} Share (25k)
-🔥 Score: {top['score']}/10"""
-    tg(msg1)
-    tg(msg2)
+if __name__=="__main__": main()
