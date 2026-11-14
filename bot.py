@@ -59,12 +59,18 @@ def main():
             df = yf.download(sym, period="1y", interval="1d", progress=False, auto_adjust=True)
             if df.empty or len(df)<210: continue
             if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+            df = df.dropna(subset=["Close"])
+            df = df[~df.index.duplicated(keep="last")]
+            if len(df)<210: continue
             c=df["Close"]; v=df["Volume"]
             close=float(c.iloc[-1]); prev=float(c.iloc[-2])
+            if not np.isfinite(close) or not np.isfinite(prev) or prev==0: continue
             chg1=(close-prev)/prev*100
             chg5=float((c.iloc[-1]-c.iloc[-6])/c.iloc[-6]*100)
             chg20=float((c.iloc[-1]-c.iloc[-21])/c.iloc[-21]*100)
+            if not np.isfinite(chg1) or not np.isfinite(chg5): continue
             r=float(rsi_calc(c).iloc[-1])
+            if not np.isfinite(r): continue
             e20=float(c.ewm(span=20, adjust=False).mean().iloc[-1])
             e50=float(c.ewm(span=50, adjust=False).mean().iloc[-1])
             e200=float(c.ewm(span=200, adjust=False).mean().iloc[-1])
@@ -72,13 +78,15 @@ def main():
             roc20=float((c.iloc[-1]-c.iloc[-21])/c.iloc[-21]*100)
             ema12=c.ewm(span=12, adjust=False).mean(); ema26=c.ewm(span=26, adjust=False).mean()
             macd=ema12-ema26; sig=macd.ewm(span=9, adjust=False).mean()
-            macd_val=float(macd.iloc[-1]); sig_val=float(sig.iloc[-1]); hist=macd_val-sig_val
+            macd_val=float(macd.iloc[-1]); sig_val=float(sig.iloc[-1])
             macd_up=macd_val>sig_val
             macd_cross= float(macd.iloc[-2])<=float(sig.iloc[-2]) and macd_up
             rvol=float(v.iloc[-1]/v.tail(20).mean()) if float(v.tail(20).mean())>0 else 0
+            if not np.isfinite(rvol): rvol=0
             high52=float(c.max()); dist52=(close-high52)/high52*100
             high20=float(c.tail(20).max()); breakout=close>=high20*0.998
             atr=float(atr_calc(df).iloc[-1])
+            if not np.isfinite(atr) or atr==0: continue
             sl=close-1.5*atr; tgt1=close+2*atr; tgt2=close+3.5*atr
             above_all=close>e20 and close>e50 and close>e200
             score=0
@@ -100,7 +108,7 @@ def main():
             elif r>=72 and dist52>-2: stage="🟠 DISTRIBUTION"; tag="DISTRIBUTION"
             elif close<e20 and not macd_up: stage="🔴 DECLINE"; tag="DECLINE"
             else: stage="⚪ SIDEWAYS"; tag="SIDEWAYS"
-            rows.append({"n":name,"cl":close,"chg":chg1,"chg5":chg5,"chg20":chg20,"rsi":r,"e20":e20,"e50":e50,"e200":e200,"roc":roc10,"roc20":roc20,"macd_up":macd_up,"cross":macd_cross,"hist":hist,"rvol":rvol,"dist52":dist52,"break":breakout,"atr":atr,"sl":sl,"t1":tgt1,"t2":tgt2,"score":score,"stage":stage,"tag":tag,"above":above_all})
+            rows.append({"n":name,"cl":close,"chg":chg1,"chg5":chg5,"chg20":chg20,"rsi":r,"e20":e20,"e50":e50,"e200":e200,"roc":roc10,"roc20":roc20,"macd_up":macd_up,"cross":macd_cross,"rvol":rvol,"dist52":dist52,"break":breakout,"atr":atr,"sl":sl,"t1":tgt1,"t2":tgt2,"score":score,"stage":stage,"tag":tag,"above":above_all})
         except Exception as e:
             print(sym, e); continue
     if not rows:
