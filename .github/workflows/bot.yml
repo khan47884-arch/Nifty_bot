@@ -1,0 +1,29 @@
+name: SWING MOMENTUM BOND
+
+on:
+  schedule:
+    - cron: '05 10 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  run-momentum:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          pip install yfinance pytz requests pandas
+
+      - name: Run Momentum Bot
+        env:
+          MOMENTUM_BOT_TOKEN: ${{ secrets.MOMENTUM_BOT_TOKEN }}
+          MOMENTUM_CHAT_ID: ${{ secrets.MOMENTUM_CHAT_ID }}
+        run: |
+          python momentum_bot.py
