@@ -2,8 +2,8 @@ import yfinance as yf, pytz, requests, os
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
-BOT = os.getenv("MOMENTUM_BOT_TOKEN")
-CHAT = os.getenv("MOMENTUM_CHAT_ID")
+BOT = os.getenv("TELIGRAM_BOT_TOKEN")
+CHAT = os.getenv("TELEGRAM_CHAT_ID")
 
 def tg(m):
     try:
