@@ -26,4 +26,4 @@ jobs:
           MOMENTUM_BOT_TOKEN: ${{ secrets.MOMENTUM_BOT_TOKEN }}
           MOMENTUM_CHAT_ID: ${{ secrets.MOMENTUM_CHAT_ID }}
         run: |
-          python momentum_bot.py
+          python bot.py
